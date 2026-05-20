@@ -314,7 +314,7 @@ public:
 
 int main()
 {
-    Cube cube;
+    //Cube cube;
     Fish fish;
     Amoeba amoeba({0.0f, -2.0f, 0.0f});
     const int screenWidth = 800;
@@ -330,7 +330,7 @@ int main()
     {
         Vector2 mouseDelta = GetMouseDelta();
         UpdateCamera(&camera, CAMERA_FREE);
-        cube.updatePhysicsImplicit(GetFrameTime());
+        //cube.updatePhysicsImplicit(GetFrameTime());
 
         float dt = GetFrameTime();
 
@@ -344,10 +344,10 @@ int main()
         ClearBackground(BLACK);
         BeginMode3D(camera);
         DrawPlane((Vector3){0.0f, -5.0f, 0.0f}, (Vector2){32.0f, 32.0f}, ORANGE);
-        for (auto &n : cube.getNodes())
-            DrawSphere(n.position, 0.05f, GREEN);
-        for (auto &s : cube.getSprings())
-            DrawLine3D(s.nodeA->position, s.nodeB->position, WHITE);
+        // for (auto &n : cube.getNodes())
+        //     DrawSphere(n.position, 0.05f, GREEN);
+        // for (auto &s : cube.getSprings())
+        //     DrawLine3D(s.nodeA->position, s.nodeB->position, WHITE);
 
             // Draw the membrane nodes (skip node 0, which is the internal nucleus)
         for (size_t i = 1; i < amoeba.getNodes().size(); i++)
