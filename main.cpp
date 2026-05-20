@@ -5,6 +5,7 @@
 #include <raymath.h>
 #include <Eigen/Sparse>
 
+
 const Vector3 GLOBAL_GRAVITY = {0.0f, -9.81f, 0.0f};
 
 struct Node
@@ -309,10 +310,13 @@ public:
     };
 };
 
+#include "amoeba.hpp"
+
 int main()
 {
     Cube cube;
     Fish fish;
+    Amoeba amoeba({0.0f, -2.0f, 0.0f});
     const int screenWidth = 800;
     const int screenHeight = 450;
 
@@ -327,6 +331,15 @@ int main()
         Vector2 mouseDelta = GetMouseDelta();
         UpdateCamera(&camera, CAMERA_FREE);
         cube.updatePhysicsImplicit(GetFrameTime());
+
+        float dt = GetFrameTime();
+
+        // run biological motor and friction
+        amoeba.actuate(dt); 
+        
+        // run mass-spring-damper physics solver
+        amoeba.updatePhysicsImplicit(dt);
+
         BeginDrawing();
         ClearBackground(BLACK);
         BeginMode3D(camera);
@@ -335,6 +348,18 @@ int main()
             DrawSphere(n.position, 0.05f, GREEN);
         for (auto &s : cube.getSprings())
             DrawLine3D(s.nodeA->position, s.nodeB->position, WHITE);
+
+            // Draw the membrane nodes (skip node 0, which is the internal nucleus)
+        for (size_t i = 1; i < amoeba.getNodes().size(); i++)
+            DrawSphere(amoeba.getNodes()[i].position, 0.1f, PURPLE);
+            
+        // draw the nucleus
+        DrawSphere(amoeba.getNodes()[0].position, 0.25f, RED);
+
+        //draw the springs
+        for (auto &s : amoeba.getSprings())
+            DrawLine3D(s.nodeA->position, s.nodeB->position, Fade(WHITE, 0.3f));
+
         EndMode3D();
         EndDrawing();
     };
