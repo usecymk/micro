@@ -317,6 +317,7 @@ int main()
     //Cube cube;
     Fish fish;
     Amoeba amoeba({0.0f, -2.0f, 0.0f});
+    Bait myBait({4.0f, -4.5f, 4.0f});
     const int screenWidth = 800;
     const int screenHeight = 450;
 
@@ -335,7 +336,7 @@ int main()
         float dt = GetFrameTime();
 
         // run biological motor and friction
-        amoeba.actuate(dt); 
+        amoeba.actuate(GetFrameTime(), &myBait); 
         
         // run mass-spring-damper physics solver
         amoeba.updatePhysicsImplicit(dt);
@@ -355,6 +356,8 @@ int main()
             
         // draw the nucleus
         DrawSphere(amoeba.getNodes()[0].position, 0.25f, RED);
+
+        myBait.Draw();
 
         //draw the springs
         for (auto &s : amoeba.getSprings())
