@@ -50,7 +50,7 @@ inline void DrawPetriDish()
         //clamping line endpoints to circle boundary
         float halfLen = std::sqrt(std::max(0.0f, DISH_RADIUS * DISH_RADIUS - t * t));
         DrawLine3D({ t,  y, -halfLen }, { t,  y,  halfLen }, gridCol);  //along Z
-        DrawLine3D({ -halfLen, y, t  }, {  halfLen, y, t  }, gridCol);  / along X
+        DrawLine3D({ -halfLen, y, t  }, {  halfLen, y, t  }, gridCol);  //along X
     }
 }
 
