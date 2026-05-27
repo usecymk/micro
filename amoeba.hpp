@@ -76,26 +76,21 @@ public:
         return (4.0f / 3.0f) * PI * std::pow(avgRadius, 3);
     }
 
-    void actuate(float dt, Bait* bait = nullptr)
+    void actuate(float dt, Vector3 targetPos)
     {
         // --- BAIT TRACKING LOGIC ---
         if (isHuntingBait && bait != nullptr)
         {
-            Vector3 toBait = Vector3Subtract(bait->position, nodes[0].position);
-            toBait.y = 0.0f;
+            Vector3 toPrey = Vector3Subtract(targetPos, nodes[0].position);
+            toPrey.y = 0.0f; // Keep steering horizontal
 
-            float distToBait = Vector3Length(toBait);
+            float distToPrey = Vector3Length(toPrey);
 
-            if (distToBait < searchRadius && distToBait > 0.1f)
+            if (distToPrey < searchRadius && distToPrey > 0.1f)
             {
-                Vector3 desiredHeading = Vector3Normalize(toBait);
+                Vector3 desiredHeading = Vector3Normalize(toPrey);
                 heading = Vector3Lerp(heading, desiredHeading, dt * 2.0f);
                 heading = Vector3Normalize(heading);
-
-                if (distToBait < baseRadius + bait->radius)
-                {
-                    bait->Respawn(nodes[0].position, 15.0f);
-                }
             }
         }
 

@@ -337,14 +337,29 @@ int main()
 
         float dt = GetFrameTime();
 
-        // run biological motor and friction
-        //amoeba.actuate(GetFrameTime(), &myBait); 
+        
+
+        myStaph.actuate(dt);
+        //run biological motor and friction
+        //amoeba.actuate(GetFrameTime(), preyLocation); 
+
+        Vector3 preyLocation = myStaph.getCenterPosition();
+
+        Vector3 diff = Vector3Subtract(preyLocation, amoebaLocation);
+        diff.y = 0.0f;
+        float distance = Vector3Length(diff);
+
+        // If distance is less than the combined radii (~1.8f), the prey is eaten
+        if (distance < 1.8f) 
+        {
+            // Respawn the cluster 15 units away from the amoeba
+            myStaph.Respawn(amoebaLocation, 15.0f);
+        }
+
+        myStaph.updatePhysicsImplicit(dt);
         
         // run mass-spring-damper physics solver
         //amoeba.updatePhysicsImplicit(dt);
-
-        myStaph.actuate(dt);
-        myStaph.updatePhysicsImplicit(dt);
 
         BeginDrawing();
         ClearBackground(BLACK);

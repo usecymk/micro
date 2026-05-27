@@ -7,7 +7,8 @@
 class CocciCluster : public PhysicsBody
 {
 public:
-    struct CellMeta {
+    struct CellMeta 
+    {
         int centerIndex;
         int startIndex;
         int endIndex;
@@ -21,7 +22,7 @@ public:
     CocciCluster(Vector3 startPos, int numCells = 6, float cellRadius = 0.5f, float stiffness = 150.0f, float damping = 3.0f)
     {
         time = 0.0f;
-        int numMembraneNodes = 16; 
+        int numMembraneNodes = 16;
         
         int totalNodes = numCells * (1 + numMembraneNodes);
         nodes.reserve(totalNodes);
@@ -114,13 +115,49 @@ public:
         for (auto& cell : cells)
         {
             Vector3 brownianKick = {
-                ((float)GetRandomValue(-100, 100) / 175.0f),
-                ((float)GetRandomValue(-100, 100) / 175.0f),
-                ((float)GetRandomValue(-100, 100) / 175.0f)
+                ((float)GetRandomValue(-100, 100) / 155.0f),
+                ((float)GetRandomValue(-100, 100) / 155.0f),
+                ((float)GetRandomValue(-100, 100) / 155.0f)
             };
             
             brownianKick = Vector3Scale(brownianKick, 55.0f * dt);
             nodes[cell.centerIndex].velocity = Vector3Add(nodes[cell.centerIndex].velocity, brownianKick);
+        }
+    }
+
+    Vector3 getCenterPosition()
+    {
+        if (cells.empty()) return Vector3Zero();
+        
+        Vector3 avg = {0.0f, 0.0f, 0.0f};
+        for (auto& cell : cells)
+        {
+            avg = Vector3Add(avg, nodes[cell.centerIndex].position);
+        }
+        return Vector3Scale(avg, 1.0f / cells.size());
+    }
+
+    void Respawn(Vector3 hunterPos, float distance)
+    {
+        //Pick a random angle around the amoeba to respawn
+        float angle = (float)GetRandomValue(0, 360) * DEG2RAD;
+        Vector3 newPos = {
+            hunterPos.x + std::cos(angle) * distance,
+            -1.0f, //Keep them suspended slightly above the floor
+            hunterPos.z + std::sin(angle) * distance
+        };
+
+        //Find the exact distance vector we need to shift the whole group
+        Vector3 currentCenter = getCenterPosition();
+        Vector3 shift = Vector3Subtract(newPos, currentCenter);
+
+        //Move all nodes together and kill momentum so springs don't glitch
+        for (auto& n : nodes)
+        {
+            n.position = Vector3Add(n.position, shift);
+            n.velocity = Vector3Zero();
+            n.force = Vector3Zero();
+            n.acceleration = Vector3Zero();
         }
     }
 };
