@@ -56,7 +56,7 @@ public:
         {
             int b = i * 4;
 
-            addSpring(b + 0, b + 2, stxiffness, damping);
+            addSpring(b + 0, b + 2, stiffness, damping);
             addSpring(b + 2, b + 1, stiffness, damping);
             addSpring(b + 1, b + 3, stiffness, damping);
             addSpring(b + 3, b + 0, stiffness, damping);
