@@ -79,7 +79,7 @@ public:
     void actuate(float dt, Vector3 targetPos)
     {
         // --- BAIT TRACKING LOGIC ---
-        if (isHuntingBait && bait != nullptr)
+        if (isHuntingBait)
         {
             Vector3 toPrey = Vector3Subtract(targetPos, nodes[0].position);
             toPrey.y = 0.0f; // Keep steering horizontal

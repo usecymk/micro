@@ -19,7 +19,7 @@ private:
     float time;
 
 public:
-    CocciCluster(Vector3 startPos, int numCells = 6, float cellRadius = 0.5f, float stiffness = 150.0f, float damping = 3.0f)
+    CocciCluster(Vector3 startPos, int numCells = 6, float cellRadius = 0.5f, float stiffness = 250.0f, float damping = 30.0f)
     {
         time = 0.0f;
         int numMembraneNodes = 16;
@@ -115,9 +115,9 @@ public:
         for (auto& cell : cells)
         {
             Vector3 brownianKick = {
-                ((float)GetRandomValue(-100, 100) / 155.0f),
-                ((float)GetRandomValue(-100, 100) / 155.0f),
-                ((float)GetRandomValue(-100, 100) / 155.0f)
+                ((float)GetRandomValue(-100, 100) / 250.0f),
+                ((float)GetRandomValue(-100, 100) / 250.0f),
+                ((float)GetRandomValue(-100, 100) / 250.0f)
             };
             
             brownianKick = Vector3Scale(brownianKick, 55.0f * dt);

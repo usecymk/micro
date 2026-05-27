@@ -317,7 +317,7 @@ int main()
 {
     //Cube cube;
     Fish fish;
-    //Amoeba amoeba({0.0f, -2.0f, 0.0f});
+    Amoeba amoeba({0.0f, -2.0f, 0.0f});
     CocciCluster myStaph({-3.0f, -1.0f, 0.0f});
     //Bait myBait({4.0f, -4.5f, 4.0f});
     const int screenWidth = 800;
@@ -337,13 +337,15 @@ int main()
 
         float dt = GetFrameTime();
 
-        
-
         myStaph.actuate(dt);
-        //run biological motor and friction
-        //amoeba.actuate(GetFrameTime(), preyLocation); 
 
         Vector3 preyLocation = myStaph.getCenterPosition();
+        Vector3 amoebaLocation = amoeba.getNodes()[0].position;
+
+        //run biological motor and friction
+        amoeba.actuate(GetFrameTime(), preyLocation); 
+
+        
 
         Vector3 diff = Vector3Subtract(preyLocation, amoebaLocation);
         diff.y = 0.0f;
@@ -359,7 +361,7 @@ int main()
         myStaph.updatePhysicsImplicit(dt);
         
         // run mass-spring-damper physics solver
-        //amoeba.updatePhysicsImplicit(dt);
+        amoeba.updatePhysicsImplicit(dt);
 
         BeginDrawing();
         ClearBackground(BLACK);
@@ -370,17 +372,17 @@ int main()
         // for (auto &s : cube.getSprings())
         //     DrawLine3D(s.nodeA->position, s.nodeB->position, WHITE);
 
-        //for (size_t i = 1; i < amoeba.getNodes().size(); i++)
-            //DrawSphere(amoeba.getNodes()[i].position, 0.1f, PURPLE);
+        for (size_t i = 1; i < amoeba.getNodes().size(); i++)
+            DrawSphere(amoeba.getNodes()[i].position, 0.1f, PURPLE);
             
         // draw the nucleus
-        //DrawSphere(amoeba.getNodes()[0].position, 0.25f, RED);
+        DrawSphere(amoeba.getNodes()[0].position, 0.25f, RED);
 
         //myBait.Draw();
 
         //draw the springs
-        //for (auto &s : amoeba.getSprings())
-            //DrawLine3D(s.nodeA->position, s.nodeB->position, Fade(WHITE, 0.3f));
+        for (auto &s : amoeba.getSprings())
+            DrawLine3D(s.nodeA->position, s.nodeB->position, Fade(WHITE, 0.3f));
 
         //drawing the coccus
         for (auto& cell : myStaph.getCells())
