@@ -20,6 +20,7 @@ public:
     }
 
     void Respawn(Vector3 amoebaPos, float spawnDistance)
+    {
     
         float angle = (float)GetRandomValue(0, 360) * DEG2RAD;
         
