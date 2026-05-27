@@ -11,8 +11,8 @@ constexpr float DISH_CEIL_Y = DISH_FLOOR_Y + DISH_HEIGHT;
 //colors
 static const Color DISH_FLOOR_COLOR  = { 10,  30,  60, 255 };  //navy
 static const Color DISH_WALL_COLOR   = { 80, 180, 220, 60  };  //translucent icy-ish blue
-static const Color DISH_WIRE_COLOR   = { 120, 210, 255, 180 };   //brighter rim wire
-static const Color DISH_LIQUID_COLOR = {  20,  80, 130, 40  };    //light water tint color
+static const Color DISH_WIRE_COLOR   = { 120, 210, 255, 180 };  //brighter rim wire
+static const Color DISH_LIQUID_COLOR = {  20,  80, 130, 40  };  //light water tint color
 
 
 
@@ -24,8 +24,7 @@ inline void DrawPetriDish()
     DrawCylinder(base, DISH_RADIUS, DISH_RADIUS, 0.08f, 40, DISH_FLOOR_COLOR);
     DrawCylinderWires(base, DISH_RADIUS, DISH_RADIUS, 0.08f, 40, DISH_WIRE_COLOR);
 
-    //wall cylinder 
-        //semi-transparent to see from outside in
+    //wall cylinder
     float wallThick = 0.18f;
     Vector3 wallBase = base;
     DrawCylinder(wallBase, DISH_RADIUS, DISH_RADIUS, DISH_HEIGHT, 40, DISH_WALL_COLOR);
@@ -43,14 +42,13 @@ inline void DrawPetriDish()
     int lines = 8;
     float step = (DISH_RADIUS * 2.0f) / lines;
     Color gridCol = { 30, 70, 120, 80 };
-    float y = DISH_FLOOR_Y + 0.05f;   
+    float y = DISH_FLOOR_Y + 0.05f;
     for (int i = 0; i <= lines; i++)
     {
         float t = -DISH_RADIUS + i * step;
-        //clamping line endpoints to circle boundary
         float halfLen = std::sqrt(std::max(0.0f, DISH_RADIUS * DISH_RADIUS - t * t));
-        DrawLine3D({ t,  y, -halfLen }, { t,  y,  halfLen }, gridCol);  //along Z
-        DrawLine3D({ -halfLen, y, t  }, {  halfLen, y, t  }, gridCol);  //along X
+        DrawLine3D({ t,  y, -halfLen }, { t,  y,  halfLen }, gridCol);
+        DrawLine3D({ -halfLen, y, t  }, {  halfLen, y, t  }, gridCol);
     }
 }
 
