@@ -4,6 +4,7 @@
 #include <raylib.h>
 #include <raymath.h>
 #include "bait.hpp"
+#include "BehaviorStateMachine.h"
 
 class Amoeba : public PhysicsBody
 {
@@ -13,6 +14,7 @@ private:
     float phase;
     Vector3 heading;
     int numMembraneNodes;
+    BehaviorStateMachine myStateMachine; 
 
 public:
     // --- BEHAVIOR TOGGLES ---
