@@ -5,6 +5,6 @@
   -I/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk/usr/include/c++/v1 \
   -I./include \
   -I/opt/homebrew/include/eigen3 \
-  testing.cpp ./libraries/libraylib.5.5.0.dylib \
+  testing.cpp src/BoidBehavior.cpp ./libraries/libraylib.5.5.0.dylib \
   -framework IOKit -framework Cocoa -framework OpenGL \
   -o testing && ./testing
