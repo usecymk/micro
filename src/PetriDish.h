@@ -13,6 +13,15 @@
 class PetriDish
 {
 public:
+    struct HeatSource
+    {
+        Vector3 position;
+        float peakTemperature;
+        float sigma;
+        float boundary;
+        float lampRadius;
+    };
+
     float radius;
     float height;
     float floorY;
@@ -27,12 +36,54 @@ public:
     Color liquidColor = { 20,  80, 130,  40};
     Color gridColor   = { 30,  70, 120,  80};
 
+    float   baseTemperature = 22.0f;
+    std::vector<HeatSource> heatSources;
+
     PetriDish(float r = 8.0f, float h = 5.0f, float floor = 0.0f)
-        : radius(r), height(h), floorY(floor) {}
+        : radius(r), height(h), floorY(floor)
+    {
+        heatSources.push_back({
+            {radius + 1.2f, floorY + height * 0.62f, 0.0f}, // outside heat lamp, on +X side
+            28.0f,
+            10.8f,
+            0.8f,
+            0.26f
+        });
+    }
 
     float ceilY() const { return floorY + height; }
 
-    void draw() const
+    float temperatureAt(Vector3 pos) const
+    {
+        float temp = baseTemperature;
+        for (const auto &source : heatSources)
+        {
+            float sigma = std::max(source.sigma, 1e-4f);
+            Vector3 toPoint = Vector3Subtract(pos, source.position);
+            float distance = Vector3Length(toPoint);
+            float warmed = std::exp(-(distance * distance) / (2.0f * sigma * sigma));
+            temp += source.peakTemperature * warmed;
+        }
+        return temp;
+    }
+
+    Vector3 temperatureGradientAt(Vector3 pos) const
+    {
+        Vector3 gradient = Vector3Zero();
+        for (const auto &source : heatSources)
+        {
+            float sigma = std::max(source.sigma, 1e-4f);
+            float sigma2 = sigma * sigma;
+            Vector3 toPoint = Vector3Subtract(pos, source.position);
+            float distance2 = Vector3DotProduct(toPoint, toPoint);
+            float warmed = std::exp(-distance2 / (2.0f * sigma2));
+            Vector3 sourceGradient = Vector3Scale(toPoint, -source.peakTemperature * warmed / sigma2);
+            gradient = Vector3Add(gradient, sourceGradient);
+        }
+        return gradient;
+    }
+
+    void draw(float targetTemperature = 40.0f) const
     {
         Vector3 base = {0.0f, floorY, 0.0f};
 
@@ -59,6 +110,45 @@ public:
             float halfLen = std::sqrt(std::max(0.0f, radius * radius - t * t));
             DrawLine3D({t, y, -halfLen}, {t, y,  halfLen}, gridColor);
             DrawLine3D({-halfLen, y, t}, { halfLen, y, t}, gridColor);
+        }
+
+        // Dotted 3D isothermal shell where this heat source reaches targetTemperature.
+        for (const auto &source : heatSources)
+        {
+            float ratio = (targetTemperature - baseTemperature) / std::max(source.peakTemperature, 1e-4f);
+            if (ratio <= 0.0f || ratio >= 1.0f)
+                continue;
+
+            float shellRadius = source.sigma * std::sqrt(-2.0f * std::log(ratio));
+            for (int lat = -15; lat <= 15; lat++)
+            {
+                float theta = (float)lat / 15.0f * (PI * 0.5f);
+                float ringR = std::cos(theta);
+                float y = std::sin(theta);
+                for (int lon = 0; lon < 84; lon++)
+                {
+                    float phi = ((float)lon / 84.0f) * 2.0f * PI;
+                    Vector3 offset = {
+                        std::cos(phi) * ringR,
+                        y,
+                        std::sin(phi) * ringR
+                    };
+                    Vector3 p = Vector3Add(source.position, Vector3Scale(offset, shellRadius));
+                    float radial = std::sqrt(p.x * p.x + p.z * p.z);
+                    if (radial > radius || p.y < floorY || p.y > ceilY())
+                        continue;
+
+                    DrawSphere(p, 0.045f, {255, 150, 55, 125});
+                }
+            }
+        }
+
+        // outside heat lamp markers
+        for (const auto &source : heatSources)
+        {
+            Vector3 lamp = source.position;
+            DrawSphere(lamp, source.lampRadius * 0.70f, {255, 180, 60, 240});
+            DrawSphereWires(lamp, source.lampRadius, 12, 8, {255, 120, 30, 200});
         }
     }
 

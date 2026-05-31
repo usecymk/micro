@@ -104,6 +104,9 @@ int main()
 
         EndMode3D();
 
+        float camTemp = dish.temperatureAt(camera.position);
+        DrawText(TextFormat("Camera: %.1f C", camTemp), 10, 10, 20, RAYWHITE);
+
         DrawFPS(10, screenHeight - 24);
 
         EndDrawing();
