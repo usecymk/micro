@@ -11,19 +11,12 @@
 #include "src/GravityForce.h"
 #include "src/BuoyancyForce.h"
 #include "src/DragForce.h"
-#include "src/FlagellumDrive.h"
 #include "src/Bacteria.h"
 #include "src/Amoeba.h"
 #include "src/Cocci.h"
 #include "src/Bait.h"
 #include "src/PetriDish.h"
 #include "src/BoidBehavior.h"
-
-static void setupAquaticForces(PhysicsBody &body, const FluidEnvironment &fluid)
-{
-    body.addForceGenerator(std::make_unique<GravityForce>(fluid.gravity));
-    body.addForceGenerator(std::make_unique<BuoyancyForce>(&fluid));
-}
 
 static BoidState snapshotState(Bacteria &b)
 {
@@ -46,13 +39,6 @@ int main()
     water.density  = 1000.0f;
     water.surfaceY = dish.ceilY();
     water.gravity  = {0.0f, -9.81f, 0.0f};
-
-    Bacteria bacterium;
-    setupAquaticForces(bacterium, water);
-    bacterium.addForceGenerator(std::make_unique<DragForce>(1.8f));
-    bacterium.addForceGenerator(std::make_unique<FlagellumDrive>(
-        Bacteria::BODY_NODES, Bacteria::FLAG_NODES));
-
 
     Amoeba amoeba({0.0f, dish.floorY + 2.5f, 0.0f});
     amoeba.setFloorY(dish.floorY);
@@ -113,9 +99,6 @@ int main()
     {
         UpdateCamera(&camera, CAMERA_FREE);
         float dt = GetFrameTime();
-
-        bacterium.updatePhysicsExplicit(dt);
-        dish.applyBoundary(bacterium.getNodes());
 
         Vector3 hunter = amoeba.getCenterPosition();
         Vector3 prey   = cocci.getCenterPosition();
@@ -179,7 +162,6 @@ int main()
         BeginMode3D(camera);
 
         dish.draw();
-        bacterium.draw();
         amoeba.draw();
         cocci.draw();
         bait.draw();
