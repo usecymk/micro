@@ -14,7 +14,8 @@
 #include "src/Bacteria.h"
 #include "src/Amoeba.h"
 #include "src/Cocci.h"
-#include "src/Bait.h"
+#include "src/Nutrient.h"
+#include "src/Spirogyra.h"
 #include "src/PetriDish.h"
 #include "src/BoidBehavior.h"
 
@@ -49,7 +50,21 @@ int main()
     cocci.addForceGenerator(std::make_unique<DragForce>(0.4f));
 
 
-    //Bait bait({4.0f, dish.floorY + 0.5f, 4.0f});
+    const int nutrientCount = 14;
+    std::vector<Nutrient> nutrients(nutrientCount);
+    for (auto &n : nutrients)
+    {
+        n.spawnRandom(dish.radius, dish.floorY, dish.ceilY());
+        n.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
+        n.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
+        n.addForceGenerator(std::make_unique<DragForce>(1.4f));
+    }
+
+    Spirogyra spirogyra({-2.0f, dish.floorY + 2.6f, 1.0f});
+    spirogyra.setEnvironment(dish.floorY, dish.ceilY(), dish.radius * 0.6f);
+    spirogyra.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
+    spirogyra.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
+    spirogyra.addForceGenerator(std::make_unique<DragForce>(0.9f));
 
     // ── boid bacteria flock ───────────────────────────────────────────────────
     const int N = 10;
@@ -143,8 +158,22 @@ int main()
         dish.applyBoundary(amoeba.getNodes());
         dish.applyBoundary(cocci.getNodes());
 
-        
-        
+        for (auto &n : nutrients)
+        {
+            if (!n.active) continue;
+            n.update(dt);
+            dish.applyBoundary(n.getNodes(), 0.35f, n.getRadius() * 0.35f);
+        }
+
+        spirogyra.update(dt);
+        dish.applyBoundary(spirogyra.getNodes(), 0.4f, 0.06f);
+        {
+            Vector3 sc = spirogyra.getCenterPosition();
+            float sr = sqrtf(sc.x * sc.x + sc.z * sc.z);
+            if (sr > dish.radius * 0.9f && sr > 1e-4f)
+                spirogyra.onWallHit({-sc.x / sr, 0.0f, -sc.z / sr});
+        }
+
 
         for (int i = 0; i < N; i++)
         {
@@ -166,9 +195,11 @@ int main()
         BeginMode3D(camera);
 
         dish.draw();
+        for (const auto &n : nutrients)
+            n.draw();
+        spirogyra.draw();
         amoeba.draw();
         cocci.draw();
-        //bait.draw();
         for (auto &b : flock)
             b.draw(showDebug);
 
