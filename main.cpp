@@ -420,7 +420,7 @@ int main()
         EndMode3D();
 
         float camTemp = dish.temperatureAt(camera.position);
-        DrawText(TextFormat("Camera: %.1f C", camTemp), 10, 10, 20, RAYWHITE);
+        DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
         if (showDebug)
         {
             for (int g = 0; g < NUM_GROUPS; g++)
