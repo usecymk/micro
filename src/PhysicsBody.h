@@ -1,6 +1,7 @@
 #ifndef MICRO3D_PHYSICS_BODY_H
 #define MICRO3D_PHYSICS_BODY_H
 
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <cmath>
@@ -91,7 +92,8 @@ public:
             Eigen::Matrix3f M_outer = dh * dh.transpose();
             Eigen::Matrix3f M_perp = Eigen::Matrix3f::Identity() - M_outer;
 
-            Eigen::Matrix3f K_spring = -s.stiffness * M_outer - s.stiffness * (1.0f - s.rest_length / L) * M_perp;
+            float geometric = std::max(0.0f, 1.0f - s.rest_length / L);
+            Eigen::Matrix3f K_spring = -s.stiffness * M_outer - s.stiffness * geometric * M_perp;
             Eigen::Matrix3f D_spring = -s.damping * M_outer;
 
             int na = (int)(s.nodeA - &nodes[0]);
@@ -110,8 +112,8 @@ public:
             Eigen::Vector3f va(nodes[na].velocity.x, nodes[na].velocity.y, nodes[na].velocity.z);
             Eigen::Vector3f vb(nodes[nb].velocity.x, nodes[nb].velocity.y, nodes[nb].velocity.z);
 
-            Eigen::Vector3f contrib_a = dt * dt * (K_spring * vb - K_spring * va);
-            Eigen::Vector3f contrib_b = dt * dt * (K_spring * va - K_spring * vb);
+            Eigen::Vector3f contrib_a = dt * dt * (K_spring * va - K_spring * vb);
+            Eigen::Vector3f contrib_b = dt * dt * (K_spring * vb - K_spring * va);
 
             rhs.segment<3>(3 * na) += contrib_a;
             rhs.segment<3>(3 * nb) += contrib_b;
@@ -128,7 +130,14 @@ public:
 
         Eigen::SimplicialLDLT<Eigen::SparseMatrix<float>> solver;
         solver.compute(A);
+
+        if (solver.info() != Eigen::Success)
+            return;
+
         Eigen::VectorXf dv = solver.solve(rhs);
+
+        if (solver.info() != Eigen::Success || !dv.allFinite())
+            return;
 
         for (int i = 0; i < N; i++)
         {

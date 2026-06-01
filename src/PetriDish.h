@@ -226,10 +226,10 @@ public:
         }
     }
 
-    void applyBoundary(std::vector<Node> &nodes, float restitution = 0.4f) const
+    void applyBoundary(std::vector<Node> &nodes, float restitution = 0.4f, float bodyRadius = 0.18f) const
     {
         for (auto &n : nodes)
-            applyBoundary(n, restitution);
+            applyBoundary(n, restitution, bodyRadius);
     }
 };
 
