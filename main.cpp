@@ -172,6 +172,8 @@ int main()
         for (auto &b : flock)
             b.draw(showDebug);
 
+        dish.drawShell();
+
         EndMode3D();
 
         if (showDebug)
