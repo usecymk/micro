@@ -7,6 +7,7 @@
 
 #include <raylib.h>
 #include <raymath.h>
+#include <rlgl.h>
 
 #include "Node.h"
 
@@ -30,16 +31,16 @@ public:
     int   sides         = 40;
     int   gridLines     = 8;
 
-    Color floorColor  = { 10,  30,  60, 255};
-    Color wallColor   = { 80, 180, 220,  60};
-    Color wireColor   = {120, 210, 255, 180};
-    Color liquidColor = { 20,  80, 130,  40};
+    Color floorColor  = { 10,  30,  60, 200};
+    Color wallColor   = { 80, 180, 220,  28};
+    Color wireColor   = {120, 210, 255, 140};
+    Color liquidColor = { 20,  80, 130,  18};
     Color gridColor   = { 30,  70, 120,  80};
 
     float   baseTemperature = 22.0f;
     std::vector<HeatSource> heatSources;
 
-    PetriDish(float r = 8.0f, float h = 5.0f, float floor = 0.0f)
+    PetriDish(float r = 16.0f, float h = 5.0f, float floor = 0.0f)
         : radius(r), height(h), floorY(floor)
     {
         heatSources.push_back({
@@ -83,23 +84,13 @@ public:
         return gradient;
     }
 
-    void draw(float targetTemperature = 40.0f) const
+    void draw() const
     {
         Vector3 base = {0.0f, floorY, 0.0f};
 
         // floor disk + rim
         DrawCylinder(base, radius, radius, 0.08f, sides, floorColor);
         DrawCylinderWires(base, radius, radius, 0.08f, sides, wireColor);
-
-        // semi-transparent outer wall
-        DrawCylinder(base, radius, radius, height, sides, wallColor);
-        DrawCylinderWires(base, radius, radius, height, sides, wireColor);
-
-        // faint liquid fill (inner cylinder)
-        DrawCylinder(base,
-                     radius - wallThickness,
-                     radius - wallThickness,
-                     height, sides, liquidColor);
 
         // floor grid lines clipped to the dish circle
         float step = (radius * 2.0f) / gridLines;
@@ -150,6 +141,46 @@ public:
             DrawSphere(lamp, source.lampRadius * 0.70f, {255, 180, 60, 240});
             DrawSphereWires(lamp, source.lampRadius, 12, 8, {255, 120, 30, 200});
         }
+    }
+
+    void drawShell() const
+    {
+        float top = ceilY();
+
+        rlDisableDepthMask();
+
+        rlBegin(RL_QUADS);
+        rlColor4ub(wallColor.r, wallColor.g, wallColor.b, wallColor.a);
+        for (int i = 0; i < sides; i++)
+        {
+            float a0 = (float)i       / sides * 2.0f * PI;
+            float a1 = (float)(i + 1) / sides * 2.0f * PI;
+            float x0 = std::cos(a0) * radius, z0 = std::sin(a0) * radius;
+            float x1 = std::cos(a1) * radius, z1 = std::sin(a1) * radius;
+
+            // outer face
+            rlVertex3f(x0, floorY, z0);
+            rlVertex3f(x1, floorY, z1);
+            rlVertex3f(x1, top,    z1);
+            rlVertex3f(x0, top,    z0);
+            // inner face (reverse winding so it's visible from inside too)
+            rlVertex3f(x0, top,    z0);
+            rlVertex3f(x1, top,    z1);
+            rlVertex3f(x1, floorY, z1);
+            rlVertex3f(x0, floorY, z0);
+        }
+        rlEnd();
+
+        Vector3 base = {0.0f, floorY, 0.0f};
+        DrawCylinder(base,
+                     radius - wallThickness,
+                     radius - wallThickness,
+                     height, sides, liquidColor);
+
+        rlEnableDepthMask();
+
+ 
+        DrawCylinderWires(base, radius, radius, height, sides, wireColor);
     }
 
     // restitution: 0 = fully inelastic, 1 = perfect elastic bounce.

@@ -1,139 +1,342 @@
 #ifndef MICRO3D_AMOEBA_H
 #define MICRO3D_AMOEBA_H
 
-#include <algorithm>
+#pragma once
+#include <vector>
 #include <cmath>
-
+#include <algorithm>
 #include <raylib.h>
 #include <raymath.h>
-
-#include "PhysicsBody.h"
+#include "Cocci.h"  
+#include "BoidBehavior.h" 
+#include "BehaviorStateMachine.h"
 
 class Amoeba : public PhysicsBody
 {
-public:
-    bool  isHuntingBait = true;
-    float searchRadius  = 25.0f;
+private:
+    float baseRadius;
+    float targetVolume;
+    float phase;
+    Vector3 heading;
+    int numMembraneNodes;
 
-    Amoeba(Vector3 center,
-           float radius    = 2.0f,
-           float stiffness = 20.0f,
-           float damping   = 2.5f)
-        : baseRadius(radius),
-          phase(0.0f),
-          heading({1.0f, 0.0f, 0.0f}),
-          numMembraneNodes(64),
-          floorY(-1.0e9f)
+    BehaviorStateMachine myStateMachine; 
+    float internalHunger = 0.0f;
+    float internalFear = 0.0f;
+    float internalTempStress = 0.0f;
+
+    Vector3 wanderTargetHeading;
+    float wanderTimer = 0.0f;
+
+    float floorY = -5.0f; 
+
+public:
+    // --- BEHAVIOR TOGGLES ---
+    float searchRadius = 11.6667f;
+
+    Amoeba(Vector3 center, float radius = 0.6667f, float stiffness = 12.0f, float damping = 1.8f)
     {
-        nodes.push_back(Node(center, 0.4f));
+        baseRadius = radius;
+        phase = 0.0f;
+        heading = {1.0f, 0.0f, 0.0f}; 
+        wanderTargetHeading = heading;
+        numMembraneNodes = 64;
+        
+        searchRadius = 11.6667f; 
+
+        nodes.push_back(Node(center, 0.15f)); 
 
         for (int i = 0; i < numMembraneNodes; i++)
         {
-            float t      = (float)i / (float)(numMembraneNodes - 1);
-            float y      = 1.0f - (t * 2.0f);
-            float ringR  = std::sqrt(std::max(0.0f, 1.0f - y * y));
-            float theta  = PI * (1.0f + std::sqrt(5.0f)) * (float)i;
-
-            float x = std::cos(theta) * ringR;
-            float z = std::sin(theta) * ringR;
+            float t = (float)i / (numMembraneNodes - 1); 
+            float y = 1.0f - (t * 2.0f); 
+            float radius_at_y = std::sqrt(1.0f - y * y);
+            float theta = PI * (1.0f + std::sqrt(5.0f)) * i; 
+            
+            float x = std::cos(theta) * radius_at_y;
+            float z = std::sin(theta) * radius_at_y;
 
             Vector3 offset = Vector3Scale({x, y, z}, radius);
-            nodes.push_back(Node(Vector3Add(center, offset), 0.2f));
+            nodes.push_back(Node(Vector3Add(center, offset), 0.07f)); 
         }
 
         for (int i = 1; i <= numMembraneNodes; i++)
-            addSpring(0, i, stiffness * 0.7f, damping);
+        {
+            addSpring(0, i, stiffness * 0.6f, damping); 
+        }
 
-        float expected  = std::sqrt(4.0f * PI * radius * radius / (float)numMembraneNodes);
-        float threshold = expected * 1.5f;
+        float expected_dist = std::sqrt(4.0f * PI * radius * radius / numMembraneNodes);
+        float threshold = expected_dist * 1.5f; 
+
         for (int i = 1; i <= numMembraneNodes; i++)
         {
             for (int j = i + 1; j <= numMembraneNodes; j++)
             {
                 float d = Vector3Distance(nodes[i].position, nodes[j].position);
                 if (d < threshold)
-                    addSpring(i, j, stiffness * 0.8f, damping);
+                {
+                    addSpring(i, j, stiffness * 0.7f, damping);
+                }
             }
         }
+
+        targetVolume = (4.0f / 3.0f) * PI * std::pow(radius, 3);
     }
 
-    void setFloorY(float y) { floorY = y; }
-
-    Vector3 getCenterPosition() const
-    {
-        return nodes.empty() ? Vector3Zero() : nodes[0].position;
+    void setFloorY(float y) 
+    { 
+        floorY = y; 
     }
 
-    void actuate(float dt, Vector3 targetPos)
-    {
-        if (nodes.empty())
-            return;
+    Vector3 getCenterPosition() const 
+    { 
+        if (nodes.empty()) return Vector3Zero();
+        return nodes[0].position;
+    }
 
-        if (isHuntingBait)
+    float calculateCurrentVolume()
+    {
+        float currentRadiusSum = 0.0f;
+        for (int i = 1; i <= numMembraneNodes; i++)
         {
-            Vector3 toPrey = Vector3Subtract(targetPos, nodes[0].position);
-            toPrey.y = 0.0f;
-            float distToPrey = Vector3Length(toPrey);
-            if (distToPrey < searchRadius && distToPrey > 0.1f)
+            currentRadiusSum += Vector3Distance(nodes[i].position, nodes[0].position);
+        }
+        float avgRadius = currentRadiusSum / numMembraneNodes;
+        return (4.0f / 3.0f) * PI * std::pow(avgRadius, 3);
+    }
+
+    void actuate(float dt, const CocciCluster& cocci, const std::vector<BoidState>& flockStates)
+    {
+        Vector3 myPos = nodes[0].position;
+
+
+        internalHunger += dt * 4.0f; 
+        
+        float distToCocci = Vector3Distance(cocci.getCenterPosition(), myPos);
+
+        float closestBoidDist = 99999.0f;
+        Vector3 closestBoidPos = Vector3Zero();
+        bool boidFound = false;
+
+        for (const auto& boid : flockStates)
+        {
+            float distToBoid = Vector3Distance(boid.position, myPos);
+            if (distToBoid < closestBoidDist)
             {
-                Vector3 desired = Vector3Normalize(toPrey);
-                heading = Vector3Lerp(heading, desired, dt * 2.0f);
-                heading = Vector3Normalize(heading);
+                closestBoidDist = distToBoid;
+                closestBoidPos = boid.position;
+                boidFound = true;
             }
         }
 
-        phase += dt * 2.2f;
+        if (distToCocci < 0.667f) internalHunger = std::max(0.0f, internalHunger - dt * 80.0f);
+        if (boidFound && closestBoidDist < 0.5f) internalHunger = std::max(0.0f, internalHunger - dt * 60.0f);
+        internalHunger = Clamp(internalHunger, 0.0f, 100.0f);
+
+        internalFear = std::max(0.0f, internalFear - dt * 15.0f);
+
+        float distFromOrigin = Vector3Length({myPos.x, 0.0f, myPos.z});
+        if (distFromOrigin > 2.5f) 
+        {
+            internalTempStress += dt * 12.0f;
+        }
+        else
+        {
+            internalTempStress -= dt * 8.0f;
+        }
+        internalTempStress = Clamp(internalTempStress, 0.0f, 100.0f);
+
+        myStateMachine.updateSensors(internalFear, internalHunger, internalTempStress);
+
+        float speedMultiplier = 1.0f;
+        float stretchFactor = 1.0f;
+        float pulseSpeed = 2.2f;
+        Vector3 targetHeading = heading;
+
+        if (myStateMachine.isScared())
+        {
+            speedMultiplier = 3.2f;
+            stretchFactor = 2.2f;
+            pulseSpeed = 5.0f;
+        }
+        else if (myStateMachine.isHungry())
+        {
+            speedMultiplier = 1.35f;
+            stretchFactor = 1.10f;
+            pulseSpeed = 2.8f;
+
+            Vector3 targetFoodPos = cocci.getCenterPosition();
+            float chosenFoodDist = distToCocci;
+
+            if (boidFound && closestBoidDist < distToCocci)
+            {
+                targetFoodPos = closestBoidPos;
+                chosenFoodDist = closestBoidDist;
+            }
+
+            if (chosenFoodDist < searchRadius && chosenFoodDist > 0.033f)
+            {
+                Vector3 toPrey = Vector3Subtract(targetFoodPos, myPos);
+                toPrey.y = 0.0f;
+                targetHeading = Vector3Normalize(toPrey);
+            }
+        }
+        else if (myStateMachine.isSeekingTemperature())
+        {
+            speedMultiplier = 1.5f;
+            stretchFactor = 1.1f;
+            pulseSpeed = 2.0f;
+
+            Vector3 toCenter = Vector3Negate(myPos);
+            toCenter.y = 0.0f;
+            if (Vector3Length(toCenter) > 0.033f) targetHeading = Vector3Normalize(toCenter);
+        }
+        else 
+        {
+            speedMultiplier = 0.5f;
+            stretchFactor = 0.7f;
+            pulseSpeed = 1.1f;
+
+            wanderTimer -= dt;
+            if (wanderTimer <= 0.0f)
+            {
+                float angle = (float)(GetRandomValue(0, 360)) * DEG2RAD;
+                wanderTargetHeading = { std::cos(angle), 0.0f, std::sin(angle) };
+                wanderTimer = (float)GetRandomValue(2, 5); 
+            }
+            targetHeading = wanderTargetHeading;
+        }
+
+        heading = Vector3Lerp(heading, targetHeading, dt * 3.5f);
+        heading = Vector3Normalize(heading);
+
+        phase += dt * pulseSpeed; 
         float pulse = std::sin(phase);
 
-        for (auto &n : nodes)
-            n.velocity = Vector3Scale(n.velocity, 0.93f);
+        float currentVolume = calculateCurrentVolume();
+        float pressureStiffness = 320.0f; 
+        float pressureDelta = targetVolume - currentVolume;
+        float internalPressure = std::max(0.0f, pressureDelta * pressureStiffness);
+
+        Vector3 gravityCancellation = {0.0f, 9.81f, 0.0f}; 
+
+        for (size_t i = 0; i < nodes.size(); i++)
+        {
+            Vector3 antiGrav = Vector3Scale(gravityCancellation, nodes[i].mass);
+            nodes[i].force = Vector3Add(nodes[i].force, antiGrav);
+            nodes[i].velocity = Vector3Scale(nodes[i].velocity, 0.95f);
+
+            if (i > 0)
+            {
+                Vector3 outwardDir = Vector3Normalize(Vector3Subtract(nodes[i].position, nodes[0].position));
+                Vector3 pressureForce = Vector3Scale(outwardDir, internalPressure / numMembraneNodes);
+                nodes[i].force = Vector3Add(nodes[i].force, pressureForce);
+            }
+        }
 
         for (int i = 1; i <= numMembraneNodes; i++)
         {
             Vector3 dirFromCenter = Vector3Normalize(Vector3Subtract(nodes[i].position, nodes[0].position));
-            float   alignment     = Vector3DotProduct(dirFromCenter, heading);
+            float alignment = Vector3DotProduct(dirFromCenter, heading);
 
-            if (alignment > 0.75f && pulse > 0.0f)
+            if (alignment > 0.45f)
             {
-                Vector3 thrust = Vector3Scale(heading,       pulse * 28.0f * alignment * dt);
-                Vector3 puff   = Vector3Scale(dirFromCenter, pulse *  8.0f             * dt);
-                nodes[i].velocity = Vector3Add(nodes[i].velocity, thrust);
-                nodes[i].velocity = Vector3Add(nodes[i].velocity, puff);
+                if (pulse > 0.0f)
+                {
+                    float thrustMagnitude = pulse * 36.6f * speedMultiplier * std::pow(alignment, 2) * dt;
+                    Vector3 pseudopodThrust = Vector3Scale(heading, thrustMagnitude);
+                    nodes[i].velocity = Vector3Add(nodes[i].velocity, pseudopodThrust);
+                    
+                    float extensionMagnitude = pulse * 11.6f * stretchFactor * alignment * dt;
+                    Vector3 pseudopodStretch = Vector3Scale(dirFromCenter, extensionMagnitude);
+                    nodes[i].force = Vector3Add(nodes[i].force, pseudopodStretch);
+                }
             }
             else if (alignment < -0.1f)
             {
-                Vector3 squeeze = Vector3Scale(heading, 8.0f * std::abs(alignment) * dt);
-                nodes[i].velocity = Vector3Add(nodes[i].velocity, squeeze);
+                float squeezeMagnitude = 15.0f * speedMultiplier * stretchFactor * std::abs(alignment) * dt;
+                Vector3 tailSqueeze = Vector3Scale(heading, squeezeMagnitude);
+                nodes[i].velocity = Vector3Add(nodes[i].velocity, tailSqueeze);
             }
 
-            if (nodes[i].position.y < floorY + 0.2f)
+            if (nodes[i].position.y < floorY + 0.0667f)
             {
-                float lateral = (alignment > 0.6f && pulse > 0.2f) ? 0.01f : 0.96f;
-                nodes[i].velocity.x *= lateral;
-                nodes[i].velocity.z *= lateral;
+                if (alignment > 0.5f && pulse > 0.2f)
+                {
+                    nodes[i].velocity.x *= 0.01f;
+                    nodes[i].velocity.z *= 0.01f;
+                }
+                else 
+                {
+                    nodes[i].velocity.x *= 0.92f;
+                    nodes[i].velocity.z *= 0.92f;
+                }
             }
         }
 
-        nodes[0].velocity = Vector3Add(nodes[0].velocity, Vector3Scale(heading, 3.5f * dt));
+        Vector3 nucleusFollow = Vector3Scale(heading, 7.333f * speedMultiplier * dt);
+        nodes[0].velocity = Vector3Add(nodes[0].velocity, nucleusFollow);
     }
 
-    void draw()
+    void draw(bool debugOverlay = false)
     {
-        for (size_t i = 1; i < nodes.size(); i++)
-            DrawSphere(nodes[i].position, 0.1f, PURPLE);
+        if (nodes.empty()) return;
 
-        DrawSphere(nodes[0].position, 0.25f, RED);
+        Color faceColor = { 21, 228, 179, 35 }; 
 
-        for (auto &s : springs)
-            DrawLine3D(s.nodeA->position, s.nodeB->position, Fade(WHITE, 0.3f));
+        int numNodes = (int)nodes.size();
+        
+        bool connected[128][128];
+        int safeLimit = std::min(numNodes, 128);
+        
+        for (int i = 0; i < safeLimit; ++i)
+        {
+            for (int j = 0; j < safeLimit; ++j)
+            {
+                connected[i][j] = false;
+            }
+        }
+
+        for (const auto& s : springs)
+        {
+            int u = s.nodeA - &nodes[0];
+            int v = s.nodeB - &nodes[0];
+            
+            if (u >= 0 && u < safeLimit && v >= 0 && v < safeLimit)
+            {
+                connected[u][v] = true;
+                connected[v][u] = true;
+            }
+        }
+
+        for (int u = 1; u < safeLimit; u++)
+        {
+            for (int v = u + 1; v < safeLimit; v++)
+            {
+                if (!connected[u][v]) continue;
+
+                for (int w = v + 1; w < safeLimit; w++)
+                {
+                    if (connected[u][w] && connected[v][w])
+                    {
+                        DrawTriangle3D(nodes[u].position, nodes[v].position, nodes[w].position, faceColor);
+                        DrawTriangle3D(nodes[u].position, nodes[w].position, nodes[v].position, faceColor);
+                    }
+                }
+            }
+        }
+
+        if (debugOverlay)
+        {
+            Vector3 com = nodes[0].position;
+            DrawLine3D(com, Vector3Add(com, Vector3Scale(heading, 2.5f)), LIME);
+            DrawSphere(Vector3Add(com, Vector3Scale(heading, 2.5f)), 0.12f, LIME);
+
+            Vector3 worldUp = {0.0f, 1.0f, 0.0f};
+            Vector3 localRight = Vector3Normalize(Vector3CrossProduct(heading, worldUp));
+            DrawLine3D(com, Vector3Add(com, Vector3Scale(localRight, 1.5f)), PURPLE);
+        }
     }
-
-private:
-    float   baseRadius;
-    float   phase;
-    Vector3 heading;
-    int     numMembraneNodes;
-    float   floorY;
 };
 
 #endif
