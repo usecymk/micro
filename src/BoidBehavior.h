@@ -27,12 +27,32 @@ public:
     float alignmentWeight = 1.0f;
     float cohesionWeight = 0.8f;
     float maxForce = 2.5f;
+    
+    bool predatorAvoidanceEnabled = false;
+    Vector3 predatorPosition = {0.0f, 0.0f, 0.0f};
+    std::vector<Vector3> predatorPositions;
+    float predatorAvoidRadius = 4.5f;
+    float predatorAvoidWeight = 2.2f;
 
     BoidBehavior() = default;
     BoidBehavior(float sepR, float aliR, float cohR, float sepW, float aliW, float cohW, float maxF = 2.5f);
 
     //ret combined steering force for flock[selfIndex]
     Vector3 steer(int selfIndex, const std::vector<BoidState> &flock) const;
+
+    void setPredatorPosition(Vector3 pos)
+    {
+        predatorPosition = pos;
+        predatorPositions.clear();
+        predatorPositions.push_back(pos);
+        predatorAvoidanceEnabled = true;
+    }
+
+    void setPredatorPositions(const std::vector<Vector3> &positions)
+    {
+        predatorPositions = positions;
+        predatorAvoidanceEnabled = true;
+    }
 };
 
 //ForceGenerator that applies boid steering to a body's front (body) nodes.

@@ -7,9 +7,9 @@
 #include <algorithm>
 #include <raylib.h>
 #include <raymath.h>
-#include "Cocci.h"  
+#include "Cocci.h"
 #include "BoidBehavior.h" 
-#include "BehaviorStateMachine.h"
+#include "PredatorBehaviorStateMachine.h"
 
 class Amoeba : public PhysicsBody
 {
@@ -20,15 +20,80 @@ private:
     Vector3 heading;
     int numMembraneNodes;
 
-    BehaviorStateMachine myStateMachine; 
-    float internalHunger = 0.0f;
-    float internalFear = 0.0f;
-    float internalTempStress = 0.0f;
+    PredatorBehaviorStateMachine myStateMachine; 
 
-    Vector3 wanderTargetHeading;
-    float wanderTimer = 0.0f;
+    PredatorDecision lastPredatorDecision;
 
     float floorY = -5.0f; 
+
+    static unsigned char colorChannel(float value)
+    {
+        return (unsigned char)Clamp(value, 0.0f, 255.0f);
+    }
+
+    static Color lerpColor(Color from, Color to, float amount)
+    {
+        amount = Clamp(amount, 0.0f, 1.0f);
+        return {
+            colorChannel((float)from.r + ((float)to.r - (float)from.r) * amount),
+            colorChannel((float)from.g + ((float)to.g - (float)from.g) * amount),
+            colorChannel((float)from.b + ((float)to.b - (float)from.b) * amount),
+            colorChannel((float)from.a + ((float)to.a - (float)from.a) * amount)
+        };
+    }
+
+    Color getIntentBaseColor() const
+    {
+        switch (lastPredatorDecision.intent)
+        {
+            case PredatorIntent::AVOID:
+                // Cyan-blue: backing away from the dish boundary.
+                return {75, 210, 255, 58};
+            case PredatorIntent::EAT:
+                // Amber: actively hunting or eating prey.
+                return {245, 190, 55, 62};
+            case PredatorIntent::SEEK_TEMP:
+                // Violet: moving toward a more comfortable temperature.
+                return {185, 115, 255, 52};
+            case PredatorIntent::WANDER:
+            default:
+                // Aqua-green: calm wandering/default state.
+                return {21, 228, 179, 38};
+        }
+    }
+
+    Color getMembraneColor() const
+    {
+        float hunger = Clamp(myStateMachine.getHunger(), 0.0f, 1.0f);
+        float urgency = Clamp(lastPredatorDecision.urgency, 0.0f, 1.0f);
+        float stress = std::max(hunger, urgency);
+
+        Color color = getIntentBaseColor();
+        color = lerpColor(color, {255, 82, 38, 92}, hunger * 0.45f);
+
+        switch (lastPredatorDecision.intent)
+        {
+            case PredatorIntent::EAT:
+                color = lerpColor(color, {255, 42, 24, 122}, urgency * 0.65f);
+                break;
+            case PredatorIntent::AVOID:
+                color = lerpColor(color, {110, 235, 255, 112}, 0.35f + urgency * 0.35f);
+                break;
+            case PredatorIntent::SEEK_TEMP:
+                color = lerpColor(color, {255, 145, 55, 92}, urgency * 0.35f);
+                break;
+            case PredatorIntent::WANDER:
+            default:
+                color = lerpColor(color, {120, 255, 205, 70}, stress * 0.20f);
+                break;
+        }
+
+        if (lastPredatorDecision.captured)
+            color = lerpColor(color, {255, 245, 180, 150}, 0.55f);
+
+        color.a = colorChannel(35.0f + stress * 75.0f + (lastPredatorDecision.captured ? 40.0f : 0.0f));
+        return color;
+    }
 
 public:
     // --- BEHAVIOR TOGGLES ---
@@ -39,7 +104,6 @@ public:
         baseRadius = radius;
         phase = 0.0f;
         heading = {1.0f, 0.0f, 0.0f}; 
-        wanderTargetHeading = heading;
         numMembraneNodes = 64;
         
         searchRadius = 11.6667f; 
@@ -94,6 +158,16 @@ public:
         return nodes[0].position;
     }
 
+    const PredatorDecision &getLastPredatorDecision() const
+    {
+        return lastPredatorDecision;
+    }
+
+    void onConsumedPrey()
+    {
+        myStateMachine.onConsumePrey();
+    }
+
     float calculateCurrentVolume()
     {
         float currentRadiusSum = 0.0f;
@@ -105,107 +179,96 @@ public:
         return (4.0f / 3.0f) * PI * std::pow(avgRadius, 3);
     }
 
-    void actuate(float dt, const CocciCluster& cocci, const std::vector<BoidState>& flockStates)
+    void actuate(float dt,
+                 const std::vector<BoidState>& flockStates,
+                 float arenaRadius = 8.0f,
+                 const CocciCluster* cocci = nullptr,
+                 float currentTemp = 40.0f,
+                 Vector3 tempGradient = {0.0f, 0.0f, 0.0f})
     {
         Vector3 myPos = nodes[0].position;
 
-
-        internalHunger += dt * 4.0f; 
-        
-        float distToCocci = Vector3Distance(cocci.getCenterPosition(), myPos);
-
-        float closestBoidDist = 99999.0f;
-        Vector3 closestBoidPos = Vector3Zero();
-        bool boidFound = false;
-
-        for (const auto& boid : flockStates)
+        std::vector<PreyCandidate> preyCandidates;
+        if (cocci)
         {
-            float distToBoid = Vector3Distance(boid.position, myPos);
-            if (distToBoid < closestBoidDist)
-            {
-                closestBoidDist = distToBoid;
-                closestBoidPos = boid.position;
-                boidFound = true;
-            }
+            preyCandidates.emplace_back(
+                -1,
+                cocci->getCenterPosition(),
+                1.0f,
+                0.8f,
+                0.3f
+            );
         }
 
-        if (distToCocci < 0.667f) internalHunger = std::max(0.0f, internalHunger - dt * 80.0f);
-        if (boidFound && closestBoidDist < 0.5f) internalHunger = std::max(0.0f, internalHunger - dt * 60.0f);
-        internalHunger = Clamp(internalHunger, 0.0f, 100.0f);
-
-        internalFear = std::max(0.0f, internalFear - dt * 15.0f);
-
-        float distFromOrigin = Vector3Length({myPos.x, 0.0f, myPos.z});
-        if (distFromOrigin > 2.5f) 
+        for (int i = 0; i < (int)flockStates.size(); i++)
         {
-            internalTempStress += dt * 12.0f;
+            preyCandidates.emplace_back(
+                i,
+                flockStates[i].position,
+                0.12f,
+                0.2f,
+                0.8f
+            );
         }
-        else
-        {
-            internalTempStress -= dt * 8.0f;
-        }
-        internalTempStress = Clamp(internalTempStress, 0.0f, 100.0f);
 
-        myStateMachine.updateSensors(internalFear, internalHunger, internalTempStress);
+        lastPredatorDecision = myStateMachine.updatePredator(
+            dt, myPos, preyCandidates, arenaRadius, currentTemp, tempGradient);
 
         float speedMultiplier = 1.0f;
         float stretchFactor = 1.0f;
         float pulseSpeed = 2.2f;
         Vector3 targetHeading = heading;
 
-        if (myStateMachine.isScared())
+        if (lastPredatorDecision.intent == PredatorIntent::AVOID)
         {
-            speedMultiplier = 3.2f;
-            stretchFactor = 2.2f;
-            pulseSpeed = 5.0f;
+            speedMultiplier = 1.6f;
+            stretchFactor = 1.3f;
+            pulseSpeed = 2.5f;
+
+            Vector3 toTarget = Vector3Subtract(lastPredatorDecision.target, myPos);
+            toTarget.y = 0.0f;
+            if (Vector3Length(toTarget) > 0.033f)
+                targetHeading = Vector3Normalize(toTarget);
         }
-        else if (myStateMachine.isHungry())
+        else if (lastPredatorDecision.intent == PredatorIntent::EAT)
         {
-            speedMultiplier = 1.35f;
-            stretchFactor = 1.10f;
-            pulseSpeed = 2.8f;
+            speedMultiplier = 0.45f + 0.35f * lastPredatorDecision.urgency;
+            stretchFactor = 0.65f + 0.25f * lastPredatorDecision.urgency;
+            pulseSpeed = 1.1f + 0.5f * lastPredatorDecision.urgency;
 
-            Vector3 targetFoodPos = cocci.getCenterPosition();
-            float chosenFoodDist = distToCocci;
-
-            if (boidFound && closestBoidDist < distToCocci)
+            Vector3 toPrey = Vector3Subtract(lastPredatorDecision.target, myPos);
+            toPrey.y *= 0.65f;
+            if (Vector3Length(toPrey) > 0.033f)
             {
-                targetFoodPos = closestBoidPos;
-                chosenFoodDist = closestBoidDist;
-            }
-
-            if (chosenFoodDist < searchRadius && chosenFoodDist > 0.033f)
-            {
-                Vector3 toPrey = Vector3Subtract(targetFoodPos, myPos);
-                toPrey.y = 0.0f;
                 targetHeading = Vector3Normalize(toPrey);
             }
         }
-        else if (myStateMachine.isSeekingTemperature())
+        else if (lastPredatorDecision.intent == PredatorIntent::SEEK_TEMP)
         {
-            speedMultiplier = 1.5f;
-            stretchFactor = 1.1f;
-            pulseSpeed = 2.0f;
+            speedMultiplier = 0.35f;
+            stretchFactor = 0.55f;
+            pulseSpeed = 0.95f;
 
-            Vector3 toCenter = Vector3Negate(myPos);
-            toCenter.y = 0.0f;
-            if (Vector3Length(toCenter) > 0.033f) targetHeading = Vector3Normalize(toCenter);
+            Vector3 toTarget = Vector3Subtract(lastPredatorDecision.target, myPos);
+            toTarget.y *= 0.5f;
+            if (Vector3Length(toTarget) > 0.033f)
+                targetHeading = Vector3Normalize(toTarget);
         }
         else 
         {
-            speedMultiplier = 0.5f;
-            stretchFactor = 0.7f;
-            pulseSpeed = 1.1f;
+            speedMultiplier = 0.25f;
+            stretchFactor = 0.45f;
+            pulseSpeed = 0.65f;
 
-            wanderTimer -= dt;
-            if (wanderTimer <= 0.0f)
-            {
-                float angle = (float)(GetRandomValue(0, 360)) * DEG2RAD;
-                wanderTargetHeading = { std::cos(angle), 0.0f, std::sin(angle) };
-                wanderTimer = (float)GetRandomValue(2, 5); 
-            }
-            targetHeading = wanderTargetHeading;
+            Vector3 toWander = Vector3Subtract(lastPredatorDecision.target, myPos);
+            toWander.y = 0.0f;
+            if (Vector3Length(toWander) > 0.033f)
+                targetHeading = Vector3Normalize(toWander);
         }
+
+        const float amoebaMotionScale = 0.35f;
+        speedMultiplier *= amoebaMotionScale;
+        stretchFactor *= 0.45f;
 
         heading = Vector3Lerp(heading, targetHeading, dt * 3.5f);
         heading = Vector3Normalize(heading);
@@ -282,7 +345,7 @@ public:
     {
         if (nodes.empty()) return;
 
-        Color faceColor = { 21, 228, 179, 35 }; 
+        Color faceColor = getMembraneColor();
 
         int numNodes = (int)nodes.size();
         

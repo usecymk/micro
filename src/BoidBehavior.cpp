@@ -68,12 +68,28 @@ Vector3 BoidBehavior::steer(int selfIndex, const std::vector<BoidState> &flock) 
         steering = Vector3Add(steering, Vector3Scale(coh, cohesionWeight));
     }
 
+    if (predatorAvoidanceEnabled) {
+        // Old behavior: avoid one predatorPosition.
+        // Vector3 away = Vector3Subtract(self.position, predatorPosition);
+        int predatorCount = predatorPositions.empty() ? 1 : (int)predatorPositions.size();
+        for (int p = 0; p < predatorCount; p++) {
+            Vector3 predator = predatorPositions.empty() ? predatorPosition : predatorPositions[p];
+            Vector3 away = Vector3Subtract(self.position, predator);
+            away.y = 0.0f;
+            float dist = Vector3Length(away);
+            if (dist < predatorAvoidRadius && dist > 1e-6f) {
+                float urgency = 1.0f - dist / predatorAvoidRadius;
+                Vector3 predatorAvoid = Vector3Scale(
+                    Vector3Normalize(away),
+                    urgency * urgency);
+                predatorAvoid = clampLength(predatorAvoid, maxForce);
+                steering = Vector3Add(steering, Vector3Scale(predatorAvoid, predatorAvoidWeight));
+            }
+        }
+    }
+
     return steering;
 }
-
-
-
-
 
 
 BoidForceGenerator::BoidForceGenerator(const std::vector<BoidState> *flockPtr, int index, int bodyNodes, const BoidBehavior *beh)

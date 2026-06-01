@@ -96,12 +96,19 @@ public:
     {
         time += dt;
 
-        const Vector3 fluidCurrent = {0.08f, 0.0f, -0.04f};
+        const Vector3 fluidCurrent = {0.04f, 0.0f, -0.02f};
+        Vector3 sharedKick = {
+            (float)GetRandomValue(-100, 100) / 100.0f,
+            (float)GetRandomValue(-100, 100) / 100.0f,
+            (float)GetRandomValue(-100, 100) / 100.0f
+        };
+        sharedKick = Vector3Scale(sharedKick, 0.35f * dt);
 
         for (auto &n : nodes)
         {
-            n.velocity = Vector3Scale(n.velocity, 0.80f);
+            n.velocity = Vector3Scale(n.velocity, 0.70f);
             n.velocity = Vector3Add(n.velocity, Vector3Scale(fluidCurrent, dt));
+            n.velocity = Vector3Add(n.velocity, sharedKick);
         }
 
         for (auto &cell : cells)
@@ -112,8 +119,16 @@ public:
                 (float)GetRandomValue(-100, 100) / 100.0f
             };
 
-            kick = Vector3Scale(kick, 2.5f * dt);
+            kick = Vector3Scale(kick, 0.25f * dt);
             nodes[cell.centerIndex].velocity = Vector3Add(nodes[cell.centerIndex].velocity, kick);
+        }
+
+        for (auto &n : nodes)
+        {
+            float speed = Vector3Length(n.velocity);
+            const float maxSpeed = 1.2f;
+            if (speed > maxSpeed && speed > 1e-6f)
+                n.velocity = Vector3Scale(Vector3Normalize(n.velocity), maxSpeed);
         }
     }
 
@@ -135,6 +150,14 @@ public:
             restY,
             hunterPos.z + std::sin(angle) * distance
         };
+        float radial = std::sqrt(newClusterCenter.x * newClusterCenter.x
+                               + newClusterCenter.z * newClusterCenter.z);
+        if (radial > distance && radial > 1e-6f)
+        {
+            float scale = distance / radial;
+            newClusterCenter.x *= scale;
+            newClusterCenter.z *= scale;
+        }
 
         for (size_t c = 0; c < cells.size(); c++)
         {

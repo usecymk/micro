@@ -5,7 +5,7 @@
 #include <raymath.h>
 
 #include "PhysicsBody.h"
-#include "BehaviorStateMachine.h"
+#include "PreyBehaviorStateMachine.h"
 
 class Bacteria : public PhysicsBody
 {
@@ -16,7 +16,7 @@ public:
         TOTAL_NODES = BODY_NODES + FLAG_NODES,
     };
 
-    BehaviorStateMachine bsm;
+    PreyBehaviorStateMachine bsm;
 
     Bacteria(Vector3 spawnPos = {0.0f, 2.0f, 0.0f},
              float stiffness  = 60.0f,
@@ -73,17 +73,46 @@ public:
         auto &ns = getNodes();
 
         const float radius  = 0.036f;
-        const Color bodyCol = {80, 220, 120, 255};
-        for (int i = 0; i < BODY_NODES - 1; i++)
-            DrawCapsule(ns[i].position, ns[i + 1].position, radius, 6, 4, bodyCol);
-        DrawSphere(ns[0].position,            radius, bodyCol);
-        DrawSphere(ns[BODY_NODES-1].position, radius, bodyCol);
-
-        for (int i = BODY_NODES - 1; i < TOTAL_NODES - 1; i++)
+        Color bodyCol = {80, 220, 120, 255};
+        switch (bsm.behavior)
         {
-            float t         = (float)(i - (BODY_NODES - 1)) / (float)FLAG_NODES;
-            float thickness = 0.011f * (1.0f - t * 0.75f);
-            DrawCapsule(ns[i].position, ns[i + 1].position, thickness, 4, 2, {100, 210, 255, 255});
+            case Behavior::WANDER:
+                bodyCol = {80, 220, 120, 255};
+                break;
+            case Behavior::SEEK_TEMP:
+                bodyCol = {255, 155, 45, 255};
+                break;
+            case Behavior::ESCAPE:
+                bodyCol = {255, 70, 70, 255};
+                break;
+            case Behavior::AVOID_BOUNDARY:
+                bodyCol = {80, 210, 255, 255};
+                break;
+            case Behavior::SEEK_FOOD:
+                bodyCol = {245, 220, 70, 255};
+                break;
+        }
+
+        DrawCapsule(ns[0].position, ns[BODY_NODES - 1].position, radius, 6, 4, bodyCol);
+
+        if (debugOverlay)
+        {
+            for (int i = BODY_NODES - 1; i < TOTAL_NODES - 1; i++)
+            {
+                float t         = (float)(i - (BODY_NODES - 1)) / (float)FLAG_NODES;
+                float thickness = 0.011f * (1.0f - t * 0.75f);
+                DrawCapsule(ns[i].position, ns[i + 1].position, thickness, 4, 2, {100, 210, 255, 255});
+            }
+        }
+        else
+        {
+            for (int i = BODY_NODES - 1; i < TOTAL_NODES - 1; i += 2)
+            {
+                int next = i + 2;
+                if (next >= TOTAL_NODES)
+                    next = TOTAL_NODES - 1;
+                DrawLine3D(ns[i].position, ns[next].position, {100, 210, 255, 255});
+            }
         }
 
         if (debugOverlay)
@@ -171,7 +200,7 @@ private:
         Vector3 thrustDir = heading;
         if (bsm.behavior == Behavior::ESCAPE && Vector3Length(bsm.getFleeDirection()) > 0.1f)
         {
-            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 2.0f));
+            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 1.2f));
             if (Vector3Length(blended) > 1e-4f)
                 thrustDir = Vector3Normalize(blended);
         }

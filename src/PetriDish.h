@@ -46,7 +46,7 @@ public:
         heatSources.push_back({
             {radius + 1.2f, floorY + height * 0.62f, 0.0f}, // outside heat lamp, on +X side
             28.0f,
-            10.8f,
+            20.8f,
             0.8f,
             0.26f
         });
