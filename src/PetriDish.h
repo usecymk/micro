@@ -84,7 +84,7 @@ public:
         return gradient;
     }
 
-    void draw() const
+    void draw(float targetTemperature = 40.0f) const
     {
         Vector3 base = {0.0f, floorY, 0.0f};
 
