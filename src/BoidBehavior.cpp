@@ -26,7 +26,7 @@ Vector3 BoidBehavior::steer(int selfIndex, const std::vector<BoidState> &flock) 
 
     for (int i = 0; i < (int)flock.size(); i++)
     {
-        if (i == selfIndex) {
+        if (i == selfIndex || !flock[i].alive) {
             continue;
         }
 
@@ -87,8 +87,7 @@ void BoidForceGenerator::apply(PhysicsBody &body, float /*dt*/)
 
     Vector3 force = behavior->steer(selfIndex, *flock);
 
-    //suppress vertical steering; let buoyancy handle y (for now)
-    force.y *= 0.1f;
+    force.y *= 0.8f;
 
     auto &nodes = body.getNodes();
     for (int i = 0; i < bodyNodeCount && i < (int)nodes.size(); i++) {
