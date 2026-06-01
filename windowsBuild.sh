@@ -1,3 +1,6 @@
 #!/bin/bash
-clang++ -std=c++14 -g main.cpp -I/ucrt64/include/eigen3 -lraylib -lopengl32 -lgdi32 -lwinmm -o main.exe
-./main.exe
+clang++ -std=gnu++14 -g \
+  -I./include \
+  main.cpp src/BoidBehavior.cpp \
+  -lraylib -lopengl32 -lgdi32 -lwinmm \
+  -o main.exe && ./main.exe
