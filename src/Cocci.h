@@ -10,13 +10,7 @@
 
 #include "PhysicsBody.h"
 
-// A staphylococcus-like cluster of spherical cells. Each cell is a nucleus
-// node ringed by membrane nodes (fibonacci sphere), and cells are loosely
-// adhered to one another by long, soft springs between their nuclei.
-//
-// As with `Amoeba`, motility lives in `actuate()` (velocity damping,
-// fluid current, brownian kicks). Gravity is omitted by design - the
-// cluster lives suspended in the medium - so don't attach a `GravityForce`.
+// A staphylococcus-like cluster of spherical cells. 
 class CocciCluster : public PhysicsBody
 {
 public:
@@ -25,16 +19,17 @@ public:
         int centerIndex;
         int startIndex;
         int endIndex;
+        float radius; // Track radius per cell for rendering accuracy
     };
 
     CocciCluster(Vector3 startPos,
                  int   numCells   = 6,
-                 float cellRadius = 0.5f,
-                 float stiffness  = 250.0f,
-                 float damping    = 30.0f)
+                 float cellRadius = 0.16f,
+                 float stiffness  = 75.0f,
+                 float damping    = 3.5f)
         : time(0.0f)
     {
-        const int numMembraneNodes = 16;
+        const int numMembraneNodes = 12;
         nodes.reserve((size_t)numCells * (1 + numMembraneNodes));
 
         for (int c = 0; c < numCells; c++)
@@ -42,14 +37,14 @@ public:
             int cellStartIdx = (int)nodes.size();
 
             Vector3 jitter = {
-                (float)GetRandomValue(-10, 10) * 0.05f,
-                (float)GetRandomValue(-10, 10) * 0.05f,
-                (float)GetRandomValue(-10, 10) * 0.05f
+                (float)GetRandomValue(-10, 10) * 0.015f,
+                (float)GetRandomValue(-10, 10) * 0.015f,
+                (float)GetRandomValue(-10, 10) * 0.015f
             };
             Vector3 center = Vector3Add(startPos, jitter);
 
             int centerIdx = cellStartIdx;
-            nodes.push_back(Node(center, 0.4f));
+            nodes.push_back(Node(center, 0.2f));
 
             int startIdx = (int)nodes.size();
             for (int i = 0; i < numMembraneNodes; i++)
@@ -63,14 +58,13 @@ public:
                 float z = std::sin(theta) * ringR;
 
                 Vector3 pos = Vector3Add(center, Vector3Scale({x, y, z}, cellRadius));
-                nodes.push_back(Node(pos, 0.15f));
+                nodes.push_back(Node(pos, 0.05f));
             }
             int endIdx = (int)nodes.size() - 1;
 
-            cells.push_back({centerIdx, startIdx, endIdx});
+            cells.push_back({centerIdx, startIdx, endIdx, cellRadius});
         }
 
-        // Intra-cell springs: nucleus -> membrane, and short surface bonds.
         for (const auto &cell : cells)
         {
             for (int i = cell.startIndex; i <= cell.endIndex; i++)
@@ -83,17 +77,16 @@ public:
                 {
                     float d = Vector3Distance(nodes[i].position, nodes[j].position);
                     if (d < threshold)
-                        addSpring(i, j, stiffness * 0.8f, damping);
+                        addSpring(i, j, stiffness * 0.7f, damping);
                 }
         }
 
-        // Inter-cell adhesion springs hold the cluster together loosely.
-        float adhesionK = 45.0f;
+        float adhesionK = 20.0f; 
         for (size_t i = 0; i < cells.size(); i++)
             for (size_t j = i + 1; j < cells.size(); j++)
             {
-                addSpring(cells[i].centerIndex, cells[j].centerIndex, adhesionK, damping * 1.5f);
-                springs.back().rest_length = cellRadius * 1.9f;
+                addSpring(cells[i].centerIndex, cells[j].centerIndex, adhesionK, damping * 1.2f);
+                springs.back().rest_length = cellRadius * 1.75f;
             }
     }
 
@@ -103,33 +96,30 @@ public:
     {
         time += dt;
 
-        const Vector3 fluidCurrent = {0.3f, 0.0f, -0.2f};
+        const Vector3 fluidCurrent = {0.08f, 0.0f, -0.04f};
 
-        // viscous damping + ambient current
         for (auto &n : nodes)
         {
-            n.velocity = Vector3Scale(n.velocity, 0.82f);
+            n.velocity = Vector3Scale(n.velocity, 0.80f);
             n.velocity = Vector3Add(n.velocity, Vector3Scale(fluidCurrent, dt));
         }
 
-        // brownian jitter on each cell's nucleus
         for (auto &cell : cells)
         {
             Vector3 kick = {
-                (float)GetRandomValue(-100, 100) / 250.0f,
-                (float)GetRandomValue(-100, 100) / 250.0f,
-                (float)GetRandomValue(-100, 100) / 250.0f
+                (float)GetRandomValue(-100, 100) / 100.0f,
+                (float)GetRandomValue(-100, 100) / 100.0f,
+                (float)GetRandomValue(-100, 100) / 100.0f
             };
-            kick = Vector3Scale(kick, 55.0f * dt);
-            nodes[cell.centerIndex].velocity =
-                Vector3Add(nodes[cell.centerIndex].velocity, kick);
+
+            kick = Vector3Scale(kick, 2.5f * dt);
+            nodes[cell.centerIndex].velocity = Vector3Add(nodes[cell.centerIndex].velocity, kick);
         }
     }
 
     Vector3 getCenterPosition() const
     {
-        if (cells.empty())
-            return Vector3Zero();
+        if (cells.empty()) return Vector3Zero();
 
         Vector3 avg = Vector3Zero();
         for (const auto &c : cells)
@@ -137,37 +127,68 @@ public:
         return Vector3Scale(avg, 1.0f / (float)cells.size());
     }
 
-    // Teleport the entire cluster to a fresh location around `hunterPos`,
-    // killing momentum so the springs don't snap back violently.
     void respawn(Vector3 hunterPos, float distance, float restY = 0.0f)
     {
         float angle = (float)GetRandomValue(0, 360) * DEG2RAD;
-        Vector3 newCenter = {
+        Vector3 newClusterCenter = {
             hunterPos.x + std::cos(angle) * distance,
             restY,
             hunterPos.z + std::sin(angle) * distance
         };
 
-        Vector3 shift = Vector3Subtract(newCenter, getCenterPosition());
-        for (auto &n : nodes)
+        for (size_t c = 0; c < cells.size(); c++)
         {
-            n.position = Vector3Add(n.position, shift);
-            n.velocity = Vector3Zero();
-            n.force = Vector3Zero();
-            n.acceleration = Vector3Zero();
+            auto &cell = cells[c];
+
+            Vector3 cellJitter = {
+                (float)GetRandomValue(-10, 10) * 0.015f,
+                (float)GetRandomValue(-10, 10) * 0.015f,
+                (float)GetRandomValue(-10, 10) * 0.015f
+            };
+            Vector3 newCellCenter = Vector3Add(newClusterCenter, cellJitter);
+
+            nodes[cell.centerIndex].position = newCellCenter;
+            nodes[cell.centerIndex].velocity = Vector3Zero();
+            nodes[cell.centerIndex].force = Vector3Zero();
+            nodes[cell.centerIndex].acceleration = Vector3Zero();
+
+            int numMembraneNodes = cell.endIndex - cell.startIndex + 1;
+            for (int i = 0; i < numMembraneNodes; i++)
+            {
+                float t     = (float)i / (float)(numMembraneNodes - 1);
+                float y     = 1.0f - (t * 2.0f);
+                float ringR = std::sqrt(std::max(0.0f, 1.0f - y * y));
+                float theta = PI * (1.0f + std::sqrt(5.0f)) * (float)i;
+
+                float x = std::cos(theta) * ringR;
+                float z = std::sin(theta) * ringR;
+
+                Vector3 perfectOffset = Vector3Scale({x, y, z}, cell.radius);
+                Vector3 newMembranePos = Vector3Add(newCellCenter, perfectOffset);
+
+                int nodeIdx = cell.startIndex + i;
+                nodes[nodeIdx].position = newMembranePos;
+                nodes[nodeIdx].velocity = Vector3Zero();
+                nodes[nodeIdx].force = Vector3Zero();
+                nodes[nodeIdx].acceleration = Vector3Zero();
+            }
         }
     }
 
     void draw()
     {
+
         for (const auto &cell : cells)
         {
-            for (int i = cell.startIndex; i <= cell.endIndex; i++)
-                DrawSphere(nodes[i].position, 0.08f, SKYBLUE);
-            DrawSphere(nodes[cell.centerIndex].position, 0.15f, BLUE);
+            Vector3 cellPos = nodes[cell.centerIndex].position;
+            
+            Color coreColor = { 40, 140, 220, 160 };
+            Color auraColor = { 100, 210, 255, 60 }; 
+
+            DrawSphere(cellPos, cell.radius, coreColor);
+            DrawSphere(cellPos, cell.radius * 1.15f, auraColor); // Slight outer glow effect
         }
-        for (auto &s : springs)
-            DrawLine3D(s.nodeA->position, s.nodeB->position, Fade(SKYBLUE, 0.2f));
+
     }
 
 private:
@@ -175,4 +196,4 @@ private:
     float time;
 };
 
-#endif
+#endif // MICRO3D_COCCI_H

@@ -49,7 +49,7 @@ int main()
     cocci.addForceGenerator(std::make_unique<DragForce>(0.4f));
 
 
-    Bait bait({4.0f, dish.floorY + 0.5f, 4.0f});
+    //Bait bait({4.0f, dish.floorY + 0.5f, 4.0f});
 
     // ── boid bacteria flock ───────────────────────────────────────────────────
     const int N = 10;
@@ -104,24 +104,11 @@ int main()
         Vector3 prey   = cocci.getCenterPosition();
 
         Vector3 dxCocci = Vector3Subtract(prey,          hunter); dxCocci.y = 0.0f;
-        Vector3 dxBait  = Vector3Subtract(bait.position, hunter); dxBait.y  = 0.0f;
+        //Vector3 dxBait  = Vector3Subtract(bait.position, hunter); dxBait.y  = 0.0f;
 
         float distCocci = Vector3Length(dxCocci);
-        float distBait  = Vector3Length(dxBait);
-        Vector3 target  = (distBait < distCocci) ? bait.position : prey;
-
-        amoeba.actuate(dt, target);
-        cocci.actuate(dt);
-
-        if (distCocci < 1.8f)
-            cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);
-        if (distBait < 1.2f)
-            bait.respawn(hunter, dish.radius * 0.85f, dish.floorY);
-
-        amoeba.updatePhysicsImplicit(dt);
-        cocci.updatePhysicsImplicit(dt);
-        dish.applyBoundary(amoeba.getNodes());
-        dish.applyBoundary(cocci.getNodes());
+        //float distBait  = Vector3Length(dxBait);
+        Vector3 target  = prey;
 
         // ── boid flock update ─────────────────────────────────────────────────
         if (IsKeyDown(KEY_T)) {
@@ -137,10 +124,27 @@ int main()
             boidParams.separationWeight = 1.8f;
             boidParams.alignmentWeight  = 2.5f;
         }
+
         if (IsKeyPressed(KEY_G)) showDebug = !showDebug;
 
         for (int i = 0; i < N; i++)
             flockStates[i] = snapshotState(flock[i]);
+
+        amoeba.actuate(dt, cocci, flockStates);
+        cocci.actuate(dt);
+
+        if (distCocci < 1.8f)
+            cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);
+        // if (distBait < 1.2f)
+        //     bait.respawn(hunter, dish.radius * 0.85f, dish.floorY);
+
+        amoeba.updatePhysicsImplicit(dt);
+        cocci.updatePhysicsImplicit(dt);
+        dish.applyBoundary(amoeba.getNodes());
+        dish.applyBoundary(cocci.getNodes());
+
+        
+        
 
         for (int i = 0; i < N; i++)
         {
@@ -164,7 +168,7 @@ int main()
         dish.draw();
         amoeba.draw();
         cocci.draw();
-        bait.draw();
+        //bait.draw();
         for (auto &b : flock)
             b.draw(showDebug);
 
