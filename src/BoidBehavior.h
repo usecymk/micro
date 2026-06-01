@@ -12,8 +12,9 @@
     //capture @ each frame.
 struct BoidState
 {
-    Vector3 position;
-    Vector3 velocity;
+    Vector3 position = {0.0f, 0.0f, 0.0f};
+    Vector3 velocity = {0.0f, 0.0f, 0.0f};
+    bool    alive    = false;
 };
 
 //three-rule boid steering (separation, alignment, cohesion).

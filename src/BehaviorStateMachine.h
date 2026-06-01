@@ -12,7 +12,7 @@ struct SwimMC
     float speed = 0.5f;
     float getAmplitude() const { return 0.03f + speed * 0.08f; }
     float getFrequency() const { return 1.5f  + speed * 3.0f;  }
-    float getThrust()    const { return speed * getAmplitude() * getFrequency() * 2.0f; }
+    float getThrust()    const { return speed * getAmplitude() * getFrequency() * 6.0f; }
 };
 
 struct TurnMC
@@ -175,7 +175,7 @@ public:
     TurnMC        turnMC;
     Behavior      behavior = Behavior::WANDER;
 
-    // Called by Bacteria each frame after deriving heading from node positions.
+    //called by Bacteria each frame after deriving heading from node positions:
     void setHeading(Vector3 h, float yaw) { bHeading = h; currentYaw = yaw; }
 
     void update(float dt)
@@ -185,13 +185,11 @@ public:
         updateBehavior(dt);
     }
 
-    void onWallHit(Vector3 awayDir, float intensity = 0.6f)
+    void onWallHit(Vector3 awayDir)
     {
-        state.onPredatorNearby(intensity);
-        fleeDirection = Vector3Normalize(awayDir);
         if (wallHitCooldown <= 0.0f)
         {
-            targetYaw       = atan2f(fleeDirection.x, fleeDirection.z);
+            targetYaw       = atan2f(awayDir.x, awayDir.z);
             wallHitCooldown = 1.5f;
         }
     }
@@ -204,20 +202,24 @@ public:
         behavior        = Behavior::WANDER;
         swimMC          = SwimMC{};
         turnMC          = TurnMC{};
-        targetYaw       = 0.0f;
-        wanderTimer     = 0.0f;
-        fleeDirection   = {0.0f, 0.0f, 0.0f};
-        wallHitCooldown = 0.0f;
+        targetYaw        = 0.0f;
+        wanderTimer      = 0.0f;
+        targetPitch      = 0.0f;
+        wanderPitchTimer = 0.0f;
+        fleeDirection    = {0.0f, 0.0f, 0.0f};
+        wallHitCooldown  = 0.0f;
     }
 
 private:
     //organism FSM state
-    Vector3 bHeading = {0.0f, 0.0f, -1.0f};
-    float currentYaw = 0.0f;
-    float targetYaw = 0.0f;
-    float wanderTimer = 0.0f;
-    Vector3 fleeDirection = {0.0f, 0.0f, 0.0f};
-    float wallHitCooldown = 0.0f;
+    Vector3 bHeading        = {0.0f, 0.0f, -1.0f};
+    float   currentYaw      = 0.0f;
+    float   targetYaw       = 0.0f;
+    float   wanderTimer     = 0.0f;
+    float   targetPitch     = 0.0f;
+    float   wanderPitchTimer = 0.0f;
+    Vector3 fleeDirection   = {0.0f, 0.0f, 0.0f};
+    float   wallHitCooldown = 0.0f;
 
     void updateBehavior(float dt)
     {
@@ -247,7 +249,7 @@ private:
 
     void doWander(float dt)
     {
-        swimMC.speed = 0.4f;
+        swimMC.speed = 0.7f;
         wanderTimer -= dt;
         if (wanderTimer <= 0.0f)
         {
@@ -255,12 +257,19 @@ private:
             float randTurn = ((float)rand() / (float)RAND_MAX * 2.0f - 1.0f) * 1.2f;
             targetYaw = currentYaw + randTurn;
         }
+        wanderPitchTimer -= dt;
+        if (wanderPitchTimer <= 0.0f)
+        {
+            wanderPitchTimer = 3.0f + (float)(rand() % 300) / 100.0f;
+            targetPitch = ((float)rand() / (float)RAND_MAX * 2.0f - 1.0f);
+        }
+        turnMC.pitch = targetPitch * 0.4f;
         steerTowardYaw();
     }
 
     void doSeekFood(float /*dt*/)
     {
-        swimMC.speed = 0.75f;
+        swimMC.speed = 0.9f;
         turnMC.left  = 0.0f;
         turnMC.right = 0.0f;
     }
