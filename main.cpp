@@ -409,8 +409,8 @@ int main()
         spirogyra.draw();
         amoeba.draw();
         cocci.draw();
-        for (auto &b : flock)
-            b.draw(showDebug);
+        // for (auto &b : flock)
+        //     b.draw(showDebug);
         for (int g = 0; g < NUM_GROUPS; g++)
             for (auto &b : groups[g].members)
                 b->draw(showDebug);
