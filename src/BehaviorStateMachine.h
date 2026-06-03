@@ -167,6 +167,8 @@ public:
     float getFear() const { return fear; }
     float getHunger() const { return hunger; }
     float getTemperatureStress() const { return temperatureStress; }
+    float getHungerThreshold() const { return hungerThreshold; }
+    float getTemperatureThreshold() const { return temperatureThreshold; }
 
     // ── Organism behavior ─────────────────────────────────────────────────────
 
@@ -192,6 +194,17 @@ public:
             targetYaw       = atan2f(awayDir.x, awayDir.z);
             wallHitCooldown = 1.5f;
         }
+    }
+
+    void onPredatorNearby(Vector3 awayDir, float proximity)
+    {
+        if (Vector3Length(awayDir) <= 1e-4f)
+            return;
+
+        fleeDirection = Vector3Normalize(awayDir);
+        targetYaw = atan2f(fleeDirection.x, fleeDirection.z);
+        targetPitch = Clamp(fleeDirection.y, -1.0f, 1.0f);
+        state.onPredatorNearby(proximity);
     }
 
     Vector3 getFleeDirection() const { return fleeDirection; }
@@ -278,6 +291,7 @@ private:
     {
         swimMC.speed = 1.0f;
         if (Vector3Length(fleeDirection) > 0.1f) {
+            turnMC.pitch = targetPitch * 0.6f;
             steerTowardYaw();
         }
     }

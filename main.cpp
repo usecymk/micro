@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <cstdio>
 #include <raylib.h>
 #include <raymath.h>
 
@@ -23,6 +24,10 @@ static constexpr int   BOID_MAX        = 32;
 static constexpr int   BOID_INIT       = 16;
 static constexpr int   NUM_GROUPS      = 3;
 static constexpr float DISPERSE_DUR    = 5.0f;
+static constexpr float AMOEBA_TEMP_TARGET = 40.0f;
+static constexpr float PREDATOR_AVOID_RADIUS = 2.2f;
+static constexpr float BACTERIA_CONSUME_RADIUS = 0.75f;
+static constexpr float BACTERIA_NUTRITION = 18.0f;
 
 struct BoidGroup {
     std::vector<BoidState>                 flockStates;
@@ -57,6 +62,71 @@ static BoidState snapshotState(Bacteria &b)
     }
     float inv = 1.0f / Bacteria::BODY_NODES;
     return {Vector3Scale(pos, inv), Vector3Scale(vel, inv)};
+}
+
+static bool isLookingAt(Vector3 worldPos, const Camera3D &camera, int screenWidth, int screenHeight)
+{
+    Vector3 camDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    Vector3 toTarget = Vector3Subtract(worldPos, camera.position);
+    if (Vector3DotProduct(camDir, toTarget) <= 0.0f)
+        return false;
+
+    Vector2 screenPos = GetWorldToScreen(worldPos, camera);
+    if (screenPos.x < 0.0f || screenPos.x > screenWidth || screenPos.y < 0.0f || screenPos.y > screenHeight)
+        return false;
+
+    float dx = screenPos.x - screenWidth * 0.5f;
+    float dy = screenPos.y - screenHeight * 0.5f;
+    return std::sqrt(dx * dx + dy * dy) < 95.0f;
+}
+
+static void drawStatusBar(int x, int y, int w, int h, float value01, float threshold01, Color fill, const char *label)
+{
+    value01 = Clamp(value01, 0.0f, 1.0f);
+    threshold01 = Clamp(threshold01, 0.0f, 1.0f);
+
+    DrawText(label, x, y - 15, 12, {215, 230, 240, 255});
+    DrawRectangle(x, y, w, h, {18, 28, 38, 220});
+    DrawRectangle(x, y, (int)(w * value01), h, fill);
+    DrawRectangleLines(x, y, w, h, {120, 150, 170, 220});
+
+    int tx = x + (int)(w * threshold01);
+    DrawLine(tx, y - 3, tx, y + h + 3, RAYWHITE);
+}
+
+static void drawAmoebaStatusPanel(const Amoeba &amoeba, float currentTemp, int screenWidth)
+{
+    const int x = screenWidth - 285;
+    const int y = 72;
+    const int w = 250;
+    const int barW = 210;
+    const int barH = 10;
+
+    DrawRectangleRounded({(float)x, (float)y, (float)w, 142.0f}, 0.10f, 8, {6, 14, 24, 210});
+    DrawRectangleRoundedLines({(float)x, (float)y, (float)w, 142.0f}, 0.10f, 8, {95, 170, 210, 180});
+
+    DrawText("Amoeba", x + 14, y + 10, 18, RAYWHITE);
+    DrawText(TextFormat("State: %s", amoeba.getStateName()), x + 14, y + 32, 13, {215, 230, 240, 255});
+
+    drawStatusBar(x + 14, y + 62, barW, barH,
+                  amoeba.getHunger() / 100.0f,
+                  amoeba.getHungerThreshold() / 100.0f,
+                  ORANGE,
+                  TextFormat("Hunger %.0f / 100", amoeba.getHunger()));
+
+    float tempMin = 18.0f;
+    float tempMax = 50.0f;
+    drawStatusBar(x + 14, y + 91, barW, barH,
+                  (currentTemp - tempMin) / (tempMax - tempMin),
+                  (AMOEBA_TEMP_TARGET - tempMin) / (tempMax - tempMin),
+                  {80, 190, 255, 255},
+                  TextFormat("Temperature %.1f C", currentTemp));
+
+    drawStatusBar(x + 14, y + 120, barW, barH,
+                  amoeba.getTemperatureStress() / 100.0f,
+                  amoeba.getTemperatureThreshold() / 100.0f,
+                  {180, 120, 255, 255},
+                  TextFormat("Temp stress %.0f / 100", amoeba.getTemperatureStress()));
 }
 
 int main()
@@ -358,13 +428,26 @@ int main()
                     grp.members[i]->onWallHit(awayDir);
                 }
 
-                if (grp.hitCooldown[i] <= 0.0f &&
-                    Vector3Distance(hunter, com) < 0.75f)
+                Vector3 awayFromPredator = Vector3Subtract(com, hunter);
+                float predatorDist = Vector3Length(awayFromPredator);
+                if (predatorDist < PREDATOR_AVOID_RADIUS && predatorDist > 1e-4f)
                 {
-                    grp.members[i]->bsm.state.onAttackHit();
-                    grp.hitCooldown[i] = 1.5f;
+                    float proximity = 1.0f - predatorDist / PREDATOR_AVOID_RADIUS;
+                    grp.members[i]->bsm.onPredatorNearby(awayFromPredator, proximity);
+                }
 
-                    // whole boid disperses on any hit
+                if (predatorDist < BACTERIA_CONSUME_RADIUS)
+                {
+                    grp.members[i]->bsm.state.alive = false;
+                    grp.members[i]->bsm.state.causeOfDeath =
+                        InternalState::CauseOfDeath::ATTACK;
+                    grp.members[i]->bsm.state.hitCount = 0;
+                    grp.members[i]->bsm.state.hitWindowTimer = 0.0f;
+                    grp.flockStates[i].alive = false;
+                    grp.hitCooldown[i] = 0.0f;
+                    amoeba.feed(BACTERIA_NUTRITION);
+
+                    // whole boid disperses when one of its members is eaten
                     grp.disperseTimer           = DISPERSE_DUR;
                     grp.params.separationWeight = 4.5f;
                     grp.params.cohesionWeight   = 0.1f;
@@ -406,11 +489,16 @@ int main()
         }
         // ─────────────────────────────────────────────────────────────────────
 
-        amoeba.actuate(dt, cocci, allBoidStates);
+        float amoebaTemp = dish.temperatureAt(hunter);
+        Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
+        amoeba.actuate(dt, cocci, allBoidStates, amoebaTemp, amoebaTempGradient, AMOEBA_TEMP_TARGET);
         cocci.actuate(dt, dish);
 
-        if (distCocci < 1.8f)
+        if (distCocci < 0.667f)
+        {
+            amoeba.feed(100.0f);
             cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);
+        }
 
         amoeba.updatePhysicsImplicit(dt);
         cocci.updatePhysicsImplicit(dt);
@@ -439,7 +527,7 @@ int main()
         ClearBackground((Color){5, 10, 20, 255});
         BeginMode3D(camera);
 
-        dish.draw();
+        dish.draw(AMOEBA_TEMP_TARGET);
         for (const auto &n : nutrients)
             n.draw();
         spirogyra.draw();
@@ -457,6 +545,12 @@ int main()
 
         float camTemp = dish.temperatureAt(camera.position);
         DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
+
+        Vector3 amoebaPos = amoeba.getCenterPosition();
+        amoebaTemp = dish.temperatureAt(amoebaPos);
+        if (isLookingAt(amoebaPos, camera, screenWidth, screenHeight))
+            drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
+
         if (showDebug)
         {
             for (int g = 0; g < NUM_GROUPS; g++)
