@@ -3,126 +3,255 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include <raylib.h>
 #include <raymath.h>
+#include <rlgl.h>
 
-#include "PhysicsBody.h"
-
-// Soft spherical nutrient pellet: center + shell nodes, springs, fluid forces.
-class Nutrient : public PhysicsBody
+class NutrientField
 {
 public:
-    static constexpr int SHELL_NODES = 8;
-
-    float radius = 0.35f;
-    Color color  = LIME;
-    bool  active = true;
-
-    Nutrient() = default;
-
-    float getRadius() const { return radius; }
-
-    Vector3 getCenterPosition() const
+    struct Blob
     {
-        if (nodes.empty()) return Vector3Zero();
-        return nodes[0].position;
-    }
+        Vector3 center;
+        float   sigma;         // spatial spread of this nutrient source
+        float   strength;      // current peak concentration contribution
+        float   baseStrength;  // value the source regenerates back toward
+    };
 
-    void draw() const
+    struct Particle
     {
-        if (!active || nodes.empty()) return;
+        Vector3 position;
+        Vector3 velocity;   
+        float   size;  
+        float   conc;
+        float   age;
+        float   lifespan;
+    };
 
-        float shellR = radius;
-        for (int i = 1; i < (int)nodes.size(); i++)
-            shellR = std::max(shellR, Vector3Distance(nodes[0].position, nodes[i].position));
-
-        DrawSphere(nodes[0].position, shellR * 0.92f, color);
-    }
-
-    static Color randomColor()
+    // ---- lifecycle ----
+    void init(float dishRadius, float floorY, float ceilY,
+              int particleCount = 1400, int blobCount = 7)
     {
-        static const Color palette[] = {
-            { 80, 220,  90, 255},
-            {120, 255,  60, 255},
-            {200, 255,  40, 255},
-            {255, 200,  50, 255},
-            {255, 140,  80, 255},
-            {180, 255, 120, 255},
-            { 60, 200, 180, 255},
-            {255, 100, 180, 255},
-        };
-        int n = sizeof(palette) / sizeof(palette[0]);
-        return palette[GetRandomValue(0, n - 1)];
-    }
+        radius_ = dishRadius;
+        floorY_ = floorY;
+        ceilY_  = ceilY;
 
-    void buildSoftBody(Vector3 center, float r, float stiffness = 32.0f, float damping = 2.4f)
-    {
-        nodes.clear();
-        springs.clear();
 
-        nodes.push_back(Node(center, 0.06f, 0.06f / 1000.0f));
-
-        for (int i = 0; i < SHELL_NODES; i++)
+        blobs_.clear();
+        maxConc_ = 1e-4f;
+        for (int i = 0; i < blobCount; i++)
         {
-            float theta = 2.0f * PI * (float)i / (float)SHELL_NODES;
-            float phi   = std::acos(1.0f - 2.0f * ((float)i + 0.5f) / (float)SHELL_NODES);
-            Vector3 dir = {
-                std::sin(phi) * std::cos(theta),
-                std::cos(phi),
-                std::sin(phi) * std::sin(theta),
-            };
-            Vector3 pos = Vector3Add(center, Vector3Scale(dir, r));
-            nodes.push_back(Node(pos, 0.015f, 0.015f / 1000.0f));
-        }
+            Blob b;
+            b.center       = randomPointInDish(1.4f);
+            b.sigma        = 1.4f + randf() * 3.0f;
+            b.baseStrength = 0.45f + randf() * 0.9f;
+            b.strength     = b.baseStrength;
+            blobs_.push_back(b);
+            maxConc_ += b.baseStrength;
 
-        for (int i = 1; i <= SHELL_NODES; i++)
-            addSpring(0, i, stiffness, damping);
-
-        for (int i = 1; i <= SHELL_NODES; i++)
-            addSpring(i, 1 + (i % SHELL_NODES), stiffness * 0.35f, damping);
-
-        for (auto &n : nodes)
+        particles_.assign((size_t)std::max(0, particleCount), Particle{});
+        for (auto &p : particles_)
         {
-            n.velocity.x = (float)GetRandomValue(-40, 40) / 400.0f;
-            n.velocity.y = (float)GetRandomValue(-40, 40) / 400.0f;
-            n.velocity.z = (float)GetRandomValue(-40, 40) / 400.0f;
+            respawn(p);
+            p.age = randf() * p.lifespan;
         }
     }
 
-    void spawnRandom(float dishRadius, float floorY, float ceilY, float margin = 1.0f)
+    float concentrationAt(Vector3 pos) const
     {
-        float angle = (float)GetRandomValue(0, 360) * DEG2RAD;
-        float t     = (float)GetRandomValue(0, 1000) / 1000.0f;
-        float rXZ   = (dishRadius - margin) * std::sqrt(t);
-
-        radius = 0.22f + (float)GetRandomValue(8, 28) / 100.0f;
-        color  = randomColor();
-        active = true;
-
-        float yMin = floorY + radius;
-        float yMax = ceilY - radius;
-        if (yMax < yMin) yMax = yMin;
-        float u = (float)GetRandomValue(0, 1000) / 1000.0f;
-
-        Vector3 center = {
-            rXZ * std::cos(angle),
-            yMin + u * (yMax - yMin),
-            rXZ * std::sin(angle),
-        };
-
-        buildSoftBody(center, radius);
+        float c = 0.0f;
+        for (const auto &b : blobs_)
+        {
+            float s2 = std::max(b.sigma * b.sigma, 1e-4f);
+            Vector3 d = Vector3Subtract(pos, b.center);
+            float dist2 = Vector3DotProduct(d, d);
+            c += b.strength * std::exp(-dist2 / (2.0f * s2));
+        }
+        return c;
     }
 
-    void respawn(float dishRadius, float floorY, float ceilY, float margin = 1.0f)
+    float maxConcentration() const { return maxConc_; }
+
+    Vector3 gradientAt(Vector3 pos) const
     {
-        spawnRandom(dishRadius, floorY, ceilY, margin);
+        Vector3 g = Vector3Zero();
+        for (const auto &b : blobs_)
+        {
+            float s2 = std::max(b.sigma * b.sigma, 1e-4f);
+            Vector3 toCenter = Vector3Subtract(b.center, pos);
+            float dist2 = Vector3DotProduct(toCenter, toCenter);
+            float w = b.strength * std::exp(-dist2 / (2.0f * s2));
+            g = Vector3Add(g, Vector3Scale(toCenter, w / s2));
+        }
+        return g;
+    }
+
+
+    float feedAt(Vector3 pos, float bite = 0.45f)
+    {
+        float available = concentrationAt(pos);
+        if (available <= 1e-3f) return 0.0f;
+
+        for (auto &b : blobs_)
+        {
+            float s2 = std::max(b.sigma * b.sigma, 1e-4f);
+            Vector3 d = Vector3Subtract(pos, b.center);
+            float w = std::exp(-Vector3DotProduct(d, d) / (2.0f * s2)); // 0..1
+            b.strength = std::max(0.0f, b.strength - bite * w);
+        }
+        return available;
     }
 
     void update(float dt)
     {
-        if (!active) return;
-        updatePhysicsImplicit(dt);
+
+        float regen = std::min(1.0f, regenRate_ * dt);
+        for (auto &b : blobs_)
+            b.strength += (b.baseStrength - b.strength) * regen;
+
+        for (auto &p : particles_)
+        {
+            p.age += dt;
+
+            // gentle drift + a little jitter so the field shimmers
+            p.velocity.x += (randf() - 0.5f) * 0.6f * dt;
+            p.velocity.y += (randf() - 0.5f) * 0.6f * dt;
+            p.velocity.z += (randf() - 0.5f) * 0.6f * dt;
+            p.velocity = Vector3Scale(p.velocity, 0.96f); // viscous damping
+
+            p.position = Vector3Add(p.position, Vector3Scale(p.velocity, dt));
+            reflectIntoDish(p.position, p.velocity);
+
+            p.conc = concentrationAt(p.position) / maxConc_;
+
+            if (p.age >= p.lifespan)
+                respawn(p);
+        }
+    }
+
+    void draw(const Camera3D &camera) const
+    {
+        if (particles_.empty()) return;
+
+        Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        Vector3 right   = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
+        Vector3 up      = Vector3CrossProduct(right, forward);
+
+        BeginBlendMode(BLEND_ADDITIVE);
+        rlDisableDepthMask();
+
+        rlBegin(RL_QUADS);
+        for (const auto &p : particles_)
+        {
+            float fade = lifeFade(p);
+            float a    = std::min(1.0f, p.conc * 1.6f) * fade;
+            if (a <= 0.01f) continue;
+
+            Color col = concentrationColor(p.conc, a);
+
+            float s = p.size * (0.6f + 0.8f * p.conc);
+            Vector3 rx = Vector3Scale(right, s);
+            Vector3 uy = Vector3Scale(up, s);
+
+            Vector3 c0 = Vector3Subtract(Vector3Subtract(p.position, rx), uy);
+            Vector3 c1 = Vector3Subtract(Vector3Add(p.position, rx), uy);
+            Vector3 c2 = Vector3Add(Vector3Add(p.position, rx), uy);
+            Vector3 c3 = Vector3Add(Vector3Subtract(p.position, rx), uy);
+
+            rlColor4ub(col.r, col.g, col.b, col.a);
+            rlVertex3f(c0.x, c0.y, c0.z);
+            rlVertex3f(c1.x, c1.y, c1.z);
+            rlVertex3f(c2.x, c2.y, c2.z);
+            rlVertex3f(c3.x, c3.y, c3.z);
+        }
+        rlEnd();
+
+        rlEnableDepthMask();
+        EndBlendMode();
+    }
+
+private:
+    float radius_ = 16.0f;
+    float floorY_ = 0.0f;
+    float ceilY_  = 5.0f;
+    float maxConc_ = 1.0f;
+    float regenRate_ = 0.18f; // how fast grazed sources recover
+
+    std::vector<Blob>     blobs_;
+    std::vector<Particle> particles_;
+
+    static float randf() { return (float)GetRandomValue(0, 10000) / 10000.0f; }
+
+    Vector3 randomPointInDish(float margin) const
+    {
+        float angle = randf() * 2.0f * PI;
+        float rXZ   = std::max(0.0f, radius_ - margin) * std::sqrt(randf());
+        float y     = floorY_ + randf() * (ceilY_ - floorY_);
+        return { rXZ * std::cos(angle), y, rXZ * std::sin(angle) };
+    }
+
+    Vector3 sampleByConcentration() const
+    {
+        Vector3 best = randomPointInDish(0.6f);
+        float bestC = concentrationAt(best);
+        for (int attempt = 0; attempt < 12; attempt++)
+        {
+            Vector3 cand = randomPointInDish(0.6f);
+            float c = concentrationAt(cand);
+            if (randf() < c / maxConc_)
+                return cand;
+            if (c > bestC) { bestC = c; best = cand; }
+        }
+        return best;
+    }
+
+    void respawn(Particle &p) const
+    {
+        p.position = sampleByConcentration();
+        p.velocity = { (randf() - 0.5f) * 0.4f,
+                       (randf() - 0.5f) * 0.4f,
+                       (randf() - 0.5f) * 0.4f };
+        p.conc     = concentrationAt(p.position) / maxConc_;
+        p.size     = 0.06f + randf() * 0.10f;
+        p.age      = 0.0f;
+        p.lifespan = 2.5f + randf() * 4.0f;
+    }
+
+    void reflectIntoDish(Vector3 &pos, Vector3 &vel) const
+    {
+        if (pos.y < floorY_) { pos.y = floorY_; vel.y = std::fabs(vel.y); }
+        if (pos.y > ceilY_)  { pos.y = ceilY_;  vel.y = -std::fabs(vel.y); }
+
+        float r = std::sqrt(pos.x * pos.x + pos.z * pos.z);
+        if (r > radius_ && r > 1e-4f)
+        {
+            float scale = radius_ / r;
+            pos.x *= scale;
+            pos.z *= scale;
+            float nx = pos.x / radius_, nz = pos.z / radius_;
+            float vn = vel.x * nx + vel.z * nz;
+            if (vn > 0.0f) { vel.x -= 2.0f * vn * nx; vel.z -= 2.0f * vn * nz; }
+        }
+    }
+
+    static float lifeFade(const Particle &p)
+    {
+        float t = (p.lifespan > 1e-4f) ? p.age / p.lifespan : 1.0f;
+        float fadeIn  = std::min(1.0f, t / 0.15f);
+        float fadeOut = std::min(1.0f, (1.0f - t) / 0.25f);
+        return std::max(0.0f, std::min(fadeIn, fadeOut));
+    }
+
+    static Color concentrationColor(float conc, float alpha)
+    {
+        float t = std::min(1.0f, std::max(0.0f, conc));
+        unsigned char r = (unsigned char)(60.0f  + t * 195.0f);
+        unsigned char g = (unsigned char)(170.0f + t * 85.0f);
+        unsigned char b = (unsigned char)(150.0f - t * 110.0f);
+        unsigned char a = (unsigned char)(std::min(1.0f, std::max(0.0f, alpha)) * 255.0f);
+        return { r, g, b, a };
     }
 };
 

@@ -16,7 +16,7 @@
 #include "src/Amoeba.h"
 #include "src/Cocci.h"
 #include "src/Nutrient.h"
-#include "src/Spirogyra.h"
+// #include "src/Spirogyra.h"
 #include "src/PetriDish.h"
 #include "src/BoidBehavior.h"
 
@@ -28,6 +28,9 @@ static constexpr float AMOEBA_TEMP_TARGET = 40.0f;
 static constexpr float PREDATOR_AVOID_RADIUS = 2.2f;
 static constexpr float BACTERIA_CONSUME_RADIUS = 0.75f;
 static constexpr float BACTERIA_NUTRITION = 18.0f;
+static constexpr float NUTRIENT_FEED_THRESHOLD = 0.18f;
+static constexpr float NUTRIENT_BITE           = 0.9f;
+static constexpr float NUTRIENT_FEED_RATE      = 0.8f;
 
 struct BoidGroup {
     std::vector<BoidState>                 flockStates;
@@ -148,21 +151,14 @@ int main()
     // ── 3 boid groups, 16 flagella each ──────────────────────────────────────
     BoidGroup groups[NUM_GROUPS];
 
-    const int nutrientCount = 14;
-    std::vector<Nutrient> nutrients(nutrientCount);
-    for (auto &n : nutrients)
-    {
-        n.spawnRandom(dish.radius, dish.floorY, dish.ceilY());
-        n.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
-        n.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
-        n.addForceGenerator(std::make_unique<DragForce>(1.4f));
-    }
+    NutrientField nutrientField;
+    nutrientField.init(dish.radius, dish.floorY, dish.ceilY(), 1400, 7);
 
-    Spirogyra spirogyra({-2.0f, dish.floorY + 2.6f, 1.0f});
-    spirogyra.setEnvironment(dish.floorY, dish.ceilY(), dish.radius * 0.6f);
-    spirogyra.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
-    spirogyra.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
-    spirogyra.addForceGenerator(std::make_unique<DragForce>(0.9f));
+    // Spirogyra spirogyra({-2.0f, dish.floorY + 2.6f, 1.0f});
+    // spirogyra.setEnvironment(dish.floorY, dish.ceilY(), dish.radius * 0.6f);
+    // spirogyra.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
+    // spirogyra.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
+    // spirogyra.addForceGenerator(std::make_unique<DragForce>(0.9f));
     const Vector3 groupCenters[NUM_GROUPS] = {
         { 3.0f, 1.5f,  0.0f},
         {-1.5f, 3.5f,  2.6f},
@@ -354,21 +350,16 @@ int main()
                 }
             }
 
-        for (auto &n : nutrients)
-        {
-            if (!n.active) continue;
-            n.update(dt);
-            dish.applyBoundary(n.getNodes(), 0.35f, n.getRadius() * 0.35f);
-        }
+        nutrientField.update(dt);
 
-        spirogyra.update(dt);
-        dish.applyBoundary(spirogyra.getNodes(), 0.4f, 0.06f);
-        {
-            Vector3 sc = spirogyra.getCenterPosition();
-            float sr = sqrtf(sc.x * sc.x + sc.z * sc.z);
-            if (sr > dish.radius * 0.9f && sr > 1e-4f)
-                spirogyra.onWallHit({-sc.x / sr, 0.0f, -sc.z / sr});
-        }
+        // spirogyra.update(dt);
+        // dish.applyBoundary(spirogyra.getNodes(), 0.4f, 0.06f);
+        // {
+        //     Vector3 sc = spirogyra.getCenterPosition();
+        //     float sr = sqrtf(sc.x * sc.x + sc.z * sc.z);
+        //     if (sr > dish.radius * 0.9f && sr > 1e-4f)
+        //         spirogyra.onWallHit({-sc.x / sr, 0.0f, -sc.z / sr});
+        // }
 
             for (int i = 0; i < BOID_MAX; i++)
             {
@@ -401,6 +392,21 @@ int main()
             {
                 if (grp.hitCooldown[i] > 0.0f) grp.hitCooldown[i] -= dt;
                 if (!grp.members[i]->bsm.state.alive) continue;
+
+                {
+                    Vector3 sensePos  = grp.members[i]->getCenterOfMass();
+                    float   maxConc   = nutrientField.maxConcentration();
+                    float   localConc = nutrientField.concentrationAt(sensePos) / maxConc;
+                    Vector3 grad      = nutrientField.gradientAt(sensePos);
+                    grp.members[i]->bsm.setFoodTarget(grad, localConc);
+
+                    if (localConc > NUTRIENT_FEED_THRESHOLD)
+                    {
+                        float eaten = nutrientField.feedAt(sensePos, NUTRIENT_BITE * dt);
+                        if (eaten > 0.0f)
+                            grp.members[i]->bsm.state.feed(localConc * NUTRIENT_FEED_RATE * dt);
+                    }
+                }
 
                 grp.members[i]->update(dt);
                 dish.applyBoundary(grp.members[i]->getNodes());
@@ -528,9 +534,8 @@ int main()
         BeginMode3D(camera);
 
         dish.draw(AMOEBA_TEMP_TARGET);
-        for (const auto &n : nutrients)
-            n.draw();
-        spirogyra.draw();
+        nutrientField.draw(camera);
+        // spirogyra.draw();
         amoeba.draw();
         cocci.draw();
         // for (auto &b : flock)
@@ -586,6 +591,19 @@ int main()
                          g, groups[g].liveCount(), groups[g].spawnCount);
                 DrawText(buf, 10, screenHeight - 56 + g * 16, 14, RAYWHITE);
             }
+        }
+
+        {
+            int cx = screenWidth / 2;
+            int cy = screenHeight / 2;
+            int len = 10;
+            int gap = 4;
+            Color chColor = {255, 255, 255, 200};
+            DrawLine(cx - gap - len, cy, cx - gap, cy, chColor);
+            DrawLine(cx + gap, cy, cx + gap + len, cy, chColor);
+            DrawLine(cx, cy - gap - len, cx, cy - gap, chColor);
+            DrawLine(cx, cy + gap, cx, cy + gap + len, chColor);
+            DrawPixel(cx, cy, chColor);
         }
 
         DrawFPS(10, screenHeight - 24);

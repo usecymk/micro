@@ -59,6 +59,9 @@ struct InternalState
     void onEat() { 
         hunger = 0.0f; 
     }
+    void feed(float amount) {
+        hunger = Clamp(hunger - amount, 0.0f, 1.0f);
+    }
     void onPredatorNearby(float prox) { 
         fear = Clamp(fear + prox * 0.6f, 0.0f, 1.0f); 
     }
@@ -180,6 +183,17 @@ public:
     //called by Bacteria each frame after deriving heading from node positions:
     void setHeading(Vector3 h, float yaw) { bHeading = h; currentYaw = yaw; }
 
+    // Chemotaxis input: `dir` points up the nutrient concentration gradient,
+    // `localConcentration` is how rich the water is right here (normalized 0..1).
+    void setFoodTarget(Vector3 dir, float localConcentration)
+    {
+        foodConcentration = localConcentration;
+        if (Vector3Length(dir) > 1e-5f)
+            foodDirection = Vector3Normalize(dir);
+        else
+            foodDirection = {0.0f, 0.0f, 0.0f};
+    }
+
     void update(float dt)
     {
         state.update(dt);
@@ -233,6 +247,8 @@ private:
     float   wanderPitchTimer = 0.0f;
     Vector3 fleeDirection   = {0.0f, 0.0f, 0.0f};
     float   wallHitCooldown = 0.0f;
+    Vector3 foodDirection     = {0.0f, 0.0f, 0.0f};
+    float   foodConcentration = 0.0f;
 
     void updateBehavior(float dt)
     {
@@ -280,11 +296,20 @@ private:
         steerTowardYaw();
     }
 
-    void doSeekFood(float /*dt*/)
+    void doSeekFood(float dt)
     {
-        swimMC.speed = 0.9f;
-        turnMC.left  = 0.0f;
-        turnMC.right = 0.0f;
+        if (Vector3Length(foodDirection) < 0.1f)
+        {
+            doWander(dt);
+            return;
+        }
+
+
+        swimMC.speed = 0.9f + 0.4f * state.hunger;
+        targetYaw   = atan2f(foodDirection.x, foodDirection.z);
+        targetPitch = Clamp(foodDirection.y, -1.0f, 1.0f);
+        turnMC.pitch = targetPitch * 0.5f;
+        steerTowardYaw();
     }
 
     void doEscape(float /*dt*/)
