@@ -25,9 +25,8 @@ static constexpr int   BOID_INIT       = 16;
 static constexpr int   NUM_GROUPS      = 3;
 static constexpr float DISPERSE_DUR    = 5.0f;
 static constexpr float AMOEBA_TEMP_TARGET = 40.0f;
-static constexpr float PREDATOR_AVOID_RADIUS = 2.2f;
-static constexpr float BACTERIA_CONSUME_RADIUS = 0.75f;
-static constexpr float BACTERIA_NUTRITION = 18.0f;
+static constexpr float BACTERIA_HIT_RADIUS = 0.75f;
+static constexpr float BACTERIA_NUTRITION = 45.0f;
 static constexpr float NUTRIENT_FEED_THRESHOLD = 0.18f;
 static constexpr float NUTRIENT_BITE           = 0.9f;
 static constexpr float NUTRIENT_FEED_RATE      = 0.8f;
@@ -434,26 +433,16 @@ int main()
                     grp.members[i]->onWallHit(awayDir);
                 }
 
-                Vector3 awayFromPredator = Vector3Subtract(com, hunter);
-                float predatorDist = Vector3Length(awayFromPredator);
-                if (predatorDist < PREDATOR_AVOID_RADIUS && predatorDist > 1e-4f)
+                float predatorDist = Vector3Distance(com, hunter);
+                if (grp.hitCooldown[i] <= 0.0f && predatorDist < BACTERIA_HIT_RADIUS)
                 {
-                    float proximity = 1.0f - predatorDist / PREDATOR_AVOID_RADIUS;
-                    grp.members[i]->bsm.onPredatorNearby(awayFromPredator, proximity);
-                }
+                    grp.members[i]->bsm.state.onAttackHit();
+                    grp.flockStates[i].alive = grp.members[i]->bsm.state.alive;
+                    if (!grp.members[i]->bsm.state.alive)
+                        amoeba.feed(BACTERIA_NUTRITION);
+                    grp.hitCooldown[i] = 1.5f;
 
-                if (predatorDist < BACTERIA_CONSUME_RADIUS)
-                {
-                    grp.members[i]->bsm.state.alive = false;
-                    grp.members[i]->bsm.state.causeOfDeath =
-                        InternalState::CauseOfDeath::ATTACK;
-                    grp.members[i]->bsm.state.hitCount = 0;
-                    grp.members[i]->bsm.state.hitWindowTimer = 0.0f;
-                    grp.flockStates[i].alive = false;
-                    grp.hitCooldown[i] = 0.0f;
-                    amoeba.feed(BACTERIA_NUTRITION);
-
-                    // whole boid disperses when one of its members is eaten
+                    // whole boid disperses on any hit
                     grp.disperseTimer           = DISPERSE_DUR;
                     grp.params.separationWeight = 4.5f;
                     grp.params.cohesionWeight   = 0.1f;
@@ -494,6 +483,19 @@ int main()
             }
         }
         // ─────────────────────────────────────────────────────────────────────
+
+        allBoidStates.clear();
+        for (int g = 0; g < NUM_GROUPS; g++)
+        {
+            for (int i = 0; i < BOID_MAX; i++)
+            {
+                if (!groups[g].members[i]->bsm.state.alive) continue;
+
+                groups[g].flockStates[i] = snapshotState(*groups[g].members[i]);
+                groups[g].flockStates[i].alive = true;
+                allBoidStates.push_back(groups[g].flockStates[i]);
+            }
+        }
 
         float amoebaTemp = dish.temperatureAt(hunter);
         Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
@@ -551,13 +553,13 @@ int main()
         float camTemp = dish.temperatureAt(camera.position);
         DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
 
-        Vector3 amoebaPos = amoeba.getCenterPosition();
-        amoebaTemp = dish.temperatureAt(amoebaPos);
-        if (isLookingAt(amoebaPos, camera, screenWidth, screenHeight))
-            drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
-
         if (showDebug)
         {
+            Vector3 amoebaPos = amoeba.getCenterPosition();
+            amoebaTemp = dish.temperatureAt(amoebaPos);
+            if (isLookingAt(amoebaPos, camera, screenWidth, screenHeight))
+                drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
+
             for (int g = 0; g < NUM_GROUPS; g++)
             {
                 for (int i = 0; i < BOID_MAX; i++)
