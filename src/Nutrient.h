@@ -50,6 +50,7 @@ public:
             b.strength     = b.baseStrength;
             blobs_.push_back(b);
             maxConc_ += b.baseStrength;
+        }
 
         particles_.assign((size_t)std::max(0, particleCount), Particle{});
         for (auto &p : particles_)
