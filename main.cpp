@@ -407,7 +407,7 @@ int main()
         // ─────────────────────────────────────────────────────────────────────
 
         amoeba.actuate(dt, cocci, allBoidStates);
-        cocci.actuate(dt);
+        cocci.actuate(dt, dish);
 
         if (distCocci < 1.8f)
             cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);

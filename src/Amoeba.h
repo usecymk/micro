@@ -34,6 +34,25 @@ public:
     // --- BEHAVIOR TOGGLES ---
     float searchRadius = 11.6667f;
 
+    std::vector<Vector3> pendingForces;
+
+    // A custom generator that PhysicsBody will call at the right time
+    class AmoebaForceInjector : public ForceGenerator
+    {
+        Amoeba* amoeba;
+    public:
+        AmoebaForceInjector(Amoeba* a) : amoeba(a) {}
+        void apply(PhysicsBody& body, float dt) override
+        {
+            auto& bodyNodes = body.getNodes();
+            for (size_t i = 0; i < bodyNodes.size(); i++)
+            {
+                // Inject the forces that actuate() calculated
+                bodyNodes[i].force = Vector3Add(bodyNodes[i].force, amoeba->pendingForces[i]);
+            }
+        }
+    };
+
     Amoeba(Vector3 center, float radius = 0.6667f, float stiffness = 12.0f, float damping = 1.8f)
     {
         baseRadius = radius;
@@ -81,6 +100,9 @@ public:
         }
 
         targetVolume = (4.0f / 3.0f) * PI * std::pow(radius, 3);
+
+        pendingForces.resize(nodes.size(), Vector3Zero());
+        addForceGenerator(std::make_unique<AmoebaForceInjector>(this));
     }
 
     void setFloorY(float y) 
@@ -94,12 +116,12 @@ public:
         return nodes[0].position;
     }
 
-    float calculateCurrentVolume()
+    float calculateCurrentVolume(Vector3 geomCenter)
     {
         float currentRadiusSum = 0.0f;
         for (int i = 1; i <= numMembraneNodes; i++)
         {
-            currentRadiusSum += Vector3Distance(nodes[i].position, nodes[0].position);
+            currentRadiusSum += Vector3Distance(nodes[i].position, geomCenter);
         }
         float avgRadius = currentRadiusSum / numMembraneNodes;
         return (4.0f / 3.0f) * PI * std::pow(avgRadius, 3);
@@ -107,6 +129,8 @@ public:
 
     void actuate(float dt, const CocciCluster& cocci, const std::vector<BoidState>& flockStates)
     {
+        for (auto& pf : pendingForces) { pf = Vector3Zero(); }
+        
         Vector3 myPos = nodes[0].position;
 
 
@@ -161,7 +185,7 @@ public:
         }
         else if (myStateMachine.isHungry())
         {
-            speedMultiplier = 1.35f;
+            speedMultiplier = 1.1f;
             stretchFactor = 1.10f;
             pulseSpeed = 2.8f;
 
@@ -177,7 +201,7 @@ public:
             if (chosenFoodDist < searchRadius && chosenFoodDist > 0.033f)
             {
                 Vector3 toPrey = Vector3Subtract(targetFoodPos, myPos);
-                toPrey.y = 0.0f;
+                // REMOVED: toPrey.y = 0.0f; <-- Let it swim up/down!
                 targetHeading = Vector3Normalize(toPrey);
             }
         }
@@ -188,7 +212,7 @@ public:
             pulseSpeed = 2.0f;
 
             Vector3 toCenter = Vector3Negate(myPos);
-            toCenter.y = 0.0f;
+            // REMOVED: toCenter.y = 0.0f; <-- Let it swim up/down!
             if (Vector3Length(toCenter) > 0.033f) targetHeading = Vector3Normalize(toCenter);
         }
         else 
@@ -200,8 +224,13 @@ public:
             wanderTimer -= dt;
             if (wanderTimer <= 0.0f)
             {
-                float angle = (float)(GetRandomValue(0, 360)) * DEG2RAD;
-                wanderTargetHeading = { std::cos(angle), 0.0f, std::sin(angle) };
+                // Generate a true 3D wander heading
+                Vector3 randDir = {
+                    (float)GetRandomValue(-100, 100),
+                    (float)GetRandomValue(-100, 100),
+                    (float)GetRandomValue(-100, 100)
+                };
+                wanderTargetHeading = Vector3Normalize(randDir);
                 wanderTimer = (float)GetRandomValue(2, 5); 
             }
             targetHeading = wanderTargetHeading;
@@ -213,24 +242,30 @@ public:
         phase += dt * pulseSpeed; 
         float pulse = std::sin(phase);
 
-        float currentVolume = calculateCurrentVolume();
+        Vector3 geomCenter = Vector3Zero();
+        for (int i = 1; i <= numMembraneNodes; i++)
+        {
+            geomCenter = Vector3Add(geomCenter, nodes[i].position);
+        }
+        geomCenter = Vector3Scale(geomCenter, 1.0f / (float)numMembraneNodes);
+
+        float currentVolume = calculateCurrentVolume(geomCenter);
         float pressureStiffness = 320.0f; 
         float pressureDelta = targetVolume - currentVolume;
         float internalPressure = std::max(0.0f, pressureDelta * pressureStiffness);
 
-        Vector3 gravityCancellation = {0.0f, 9.81f, 0.0f}; 
+        Vector3 gravityCancellation = {0.0f, 0.0f, 0.0f}; 
 
         for (size_t i = 0; i < nodes.size(); i++)
         {
-            Vector3 antiGrav = Vector3Scale(gravityCancellation, nodes[i].mass);
-            nodes[i].force = Vector3Add(nodes[i].force, antiGrav);
             nodes[i].velocity = Vector3Scale(nodes[i].velocity, 0.95f);
 
-            if (i > 0)
+            if (i > 0) // Apply pressure to membrane nodes
             {
-                Vector3 outwardDir = Vector3Normalize(Vector3Subtract(nodes[i].position, nodes[0].position));
+                // Push outward from the GEOMETRIC center, not the volatile nucleus node
+                Vector3 outwardDir = Vector3Normalize(Vector3Subtract(nodes[i].position, geomCenter));
                 Vector3 pressureForce = Vector3Scale(outwardDir, internalPressure / numMembraneNodes);
-                nodes[i].force = Vector3Add(nodes[i].force, pressureForce);
+                pendingForces[i] = Vector3Add(pendingForces[i], pressureForce);
             }
         }
 
@@ -245,18 +280,18 @@ public:
                 {
                     float thrustMagnitude = pulse * 36.6f * speedMultiplier * std::pow(alignment, 2) * dt;
                     Vector3 pseudopodThrust = Vector3Scale(heading, thrustMagnitude);
-                    nodes[i].velocity = Vector3Add(nodes[i].velocity, pseudopodThrust);
+                    pendingForces[i] = Vector3Add(pendingForces[i], pseudopodThrust);
                     
                     float extensionMagnitude = pulse * 11.6f * stretchFactor * alignment * dt;
                     Vector3 pseudopodStretch = Vector3Scale(dirFromCenter, extensionMagnitude);
-                    nodes[i].force = Vector3Add(nodes[i].force, pseudopodStretch);
+                    pendingForces[i] = Vector3Add(pendingForces[i], pseudopodStretch);
                 }
             }
             else if (alignment < -0.1f)
             {
                 float squeezeMagnitude = 15.0f * speedMultiplier * stretchFactor * std::abs(alignment) * dt;
                 Vector3 tailSqueeze = Vector3Scale(heading, squeezeMagnitude);
-                nodes[i].velocity = Vector3Add(nodes[i].velocity, tailSqueeze);
+                pendingForces[i] = Vector3Add(pendingForces[i], tailSqueeze);
             }
 
             if (nodes[i].position.y < floorY + 0.0667f)
@@ -274,7 +309,7 @@ public:
             }
         }
 
-        Vector3 nucleusFollow = Vector3Scale(heading, 7.333f * speedMultiplier * dt);
+        Vector3 nucleusFollow = Vector3Scale(heading, 5.0f * speedMultiplier * dt);
         nodes[0].velocity = Vector3Add(nodes[0].velocity, nucleusFollow);
     }
 

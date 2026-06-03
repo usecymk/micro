@@ -9,6 +9,7 @@
 #include <raymath.h>
 
 #include "PhysicsBody.h"
+#include "PetriDish.h"
 
 // A staphylococcus-like cluster of spherical cells. 
 class CocciCluster : public PhysicsBody
@@ -37,9 +38,9 @@ public:
             int cellStartIdx = (int)nodes.size();
 
             Vector3 jitter = {
-                (float)GetRandomValue(-10, 10) * 0.015f,
-                (float)GetRandomValue(-10, 10) * 0.015f,
-                (float)GetRandomValue(-10, 10) * 0.015f
+                (float)GetRandomValue(-10, 10) * 0.025f,
+                (float)GetRandomValue(-10, 10) * 0.025f,
+                (float)GetRandomValue(-10, 10) * 0.025f
             };
             Vector3 center = Vector3Add(startPos, jitter);
 
@@ -92,7 +93,7 @@ public:
 
     std::vector<CellMeta> &getCells() { return cells; }
 
-    void actuate(float dt)
+    void actuate(float dt, const PetriDish &dish)
     {
         time += dt;
 
@@ -104,6 +105,27 @@ public:
             n.velocity = Vector3Add(n.velocity, Vector3Scale(fluidCurrent, dt));
         }
 
+
+        Vector3 centerPos = getCenterPosition();
+        float currentTemp = dish.temperatureAt(centerPos);
+        Vector3 gradient  = dish.temperatureGradientAt(centerPos);
+
+        Vector3 driftVelocity = Vector3Zero();
+        float gradLength = Vector3Length(gradient);
+
+        if (gradLength > 0.0001f)
+        {
+
+            Vector3 driftDir = Vector3Scale(gradient, 1.0f / gradLength);
+
+
+            float tempError = 40.0f - currentTemp;
+
+            float driftStrength = 0.3f; 
+
+            driftVelocity = Vector3Scale(driftDir, tempError * driftStrength * dt);
+        }
+
         for (auto &cell : cells)
         {
             Vector3 kick = {
@@ -113,7 +135,9 @@ public:
             };
 
             kick = Vector3Scale(kick, 2.5f * dt);
+
             nodes[cell.centerIndex].velocity = Vector3Add(nodes[cell.centerIndex].velocity, kick);
+            nodes[cell.centerIndex].velocity = Vector3Add(nodes[cell.centerIndex].velocity, driftVelocity);
         }
     }
 
