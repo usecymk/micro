@@ -132,12 +132,25 @@ int main()
                        CAMERA_PERSPECTIVE};
 
     bool showDebug = false;
+    bool fpvMode   = false;
+    int  fpvGroup  = 0;
+    int  fpvIdx    = 0;
+
+    auto findNextLive = [&]() {
+        for (int attempt = 0; attempt < NUM_GROUPS * BOID_MAX; attempt++) {
+            fpvIdx++;
+            if (fpvIdx >= BOID_MAX) { fpvIdx = 0; fpvGroup = (fpvGroup + 1) % NUM_GROUPS; }
+            if (groups[fpvGroup].members[fpvIdx]->bsm.state.alive) return;
+        }
+    };
+
     DisableCursor();
     SetTargetFPS(60);
 
     while (!WindowShouldClose())
     {
-        UpdateCamera(&camera, CAMERA_FREE);
+        if (!fpvMode)
+            UpdateCamera(&camera, CAMERA_FREE);
         float dt = GetFrameTime();
 
         Vector3 hunter = amoeba.getCenterPosition();
@@ -167,6 +180,11 @@ int main()
             }
         }
         if (IsKeyPressed(KEY_G)) showDebug = !showDebug;
+        if (IsKeyPressed(KEY_F)) {
+            fpvMode = !fpvMode;
+            if (fpvMode) findNextLive();
+        }
+        if (fpvMode && IsKeyPressed(KEY_N)) findNextLive();
 
         // Combined boid snapshot for amoeba
         std::vector<BoidState> allBoidStates;
@@ -367,6 +385,24 @@ int main()
         dish.applyBoundary(amoeba.getNodes());
         dish.applyBoundary(cocci.getNodes());
 
+        if (fpvMode)
+        {
+            if (!groups[fpvGroup].members[fpvIdx]->bsm.state.alive)
+                findNextLive();
+            Bacteria *fpvB    = groups[fpvGroup].members[fpvIdx].get();
+            Vector3   com     = fpvB->getCenterOfMass();
+            Vector3   h       = fpvB->getHeading();
+            Vector3   worldUp = {0.0f, 1.0f, 0.0f};
+            camera.position = Vector3Add(com, Vector3Scale(h,  0.04f));
+            camera.target   = Vector3Add(com, Vector3Scale(h,  0.5f));
+            camera.up       = worldUp;
+            camera.fovy     = 70.0f;
+        }
+        else
+        {
+            camera.fovy = 45.0f;
+        }
+
         BeginDrawing();
         ClearBackground((Color){5, 10, 20, 255});
         BeginMode3D(camera);
@@ -422,7 +458,16 @@ int main()
         }
 
         DrawFPS(10, screenHeight - 24);
-        DrawText("T=tighten  X=disperse  R=reset  G=debug  |  WASD+mouse=camera", 10, 10, 16, RAYWHITE);
+        if (fpvMode)
+        {
+            DrawText(TextFormat("FPV  G%d #%d  |  F=exit  N=next bacterium", fpvGroup, fpvIdx),
+                     10, 10, 16, YELLOW);
+        }
+        else
+        {
+            DrawText("T=tighten  X=disperse  R=reset  G=debug  F=FPV  |  WASD+mouse=camera",
+                     10, 10, 16, RAYWHITE);
+        }
 
         EndDrawing();
     }
