@@ -252,7 +252,7 @@ private:
 
     void updateBehavior(float dt)
     {
-        if (state.fear   > 0.5f) {
+        if (state.fear   > 0.35f) {
             behavior = Behavior::ESCAPE;
         }
         else if (state.hunger > 0.7f) {
@@ -314,7 +314,7 @@ private:
 
     void doEscape(float /*dt*/)
     {
-        swimMC.speed = 1.0f;
+        swimMC.speed = 1.5f;
         if (Vector3Length(fleeDirection) > 0.1f) {
             turnMC.pitch = targetPitch * 0.6f;
             steerTowardYaw();
