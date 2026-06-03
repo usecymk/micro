@@ -22,7 +22,7 @@
 
 static constexpr int   BOID_MAX        = 32;
 static constexpr int   BOID_INIT       = 16;
-static constexpr int   NUM_GROUPS      = 3;
+static constexpr int   NUM_GROUPS      = 6;
 static constexpr float DISPERSE_DUR    = 5.0f;
 static constexpr float AMOEBA_TEMP_TARGET = 40.0f;
 static constexpr float BACTERIA_HIT_RADIUS = 0.75f;
@@ -161,7 +161,10 @@ int main()
     const Vector3 groupCenters[NUM_GROUPS] = {
         { 3.0f, 1.5f,  0.0f},
         {-1.5f, 3.5f,  2.6f},
-        {-1.5f, 2.5f, -2.6f}
+        {-1.5f, 2.5f, -2.6f},
+        {-3.0f, 1.5f,  0.0f},
+        { 1.5f, 3.5f, -2.6f},
+        { 1.5f, 2.5f,  2.6f}
     };
 
     for (int g = 0; g < NUM_GROUPS; g++)
