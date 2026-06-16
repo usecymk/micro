@@ -84,7 +84,7 @@ struct InternalState
 };
 
 
-enum class Behavior { WANDER, SEEK_FOOD, ESCAPE };
+enum class Behavior { AVOID_OBSTACLE, ESCAPE, SEEK_FOOD, WANDER };
 
 class BehaviorStateMachine {
 private:
@@ -194,6 +194,18 @@ public:
             foodDirection = {0.0f, 0.0f, 0.0f};
     }
 
+    void setObstacleSense(Vector3 avoidDir, float urgency)
+    {
+        obstacleUrgency = Clamp(urgency, 0.0f, 1.0f);
+        if (Vector3Length(avoidDir) > 1e-5f)
+            obstacleAvoidDir = Vector3Normalize(avoidDir);
+        else
+            obstacleAvoidDir = {0.0f, 0.0f, 0.0f};
+    }
+
+    Vector3 getAvoidDirection() const { return obstacleAvoidDir; }
+    bool isAvoidingObstacle() const { return behavior == Behavior::AVOID_OBSTACLE; }
+
     void update(float dt)
     {
         state.update(dt);
@@ -233,8 +245,11 @@ public:
         wanderTimer      = 0.0f;
         targetPitch      = 0.0f;
         wanderPitchTimer = 0.0f;
-        fleeDirection    = {0.0f, 0.0f, 0.0f};
-        wallHitCooldown  = 0.0f;
+        fleeDirection      = {0.0f, 0.0f, 0.0f};
+        wallHitCooldown    = 0.0f;
+        obstacleAvoidDir   = {0.0f, 0.0f, 0.0f};
+        obstacleUrgency    = 0.0f;
+        savedBehavior      = Behavior::WANDER;
     }
 
 private:
@@ -245,34 +260,61 @@ private:
     float   wanderTimer     = 0.0f;
     float   targetPitch     = 0.0f;
     float   wanderPitchTimer = 0.0f;
-    Vector3 fleeDirection   = {0.0f, 0.0f, 0.0f};
-    float   wallHitCooldown = 0.0f;
+    Vector3 fleeDirection     = {0.0f, 0.0f, 0.0f};
+    float   wallHitCooldown   = 0.0f;
     Vector3 foodDirection     = {0.0f, 0.0f, 0.0f};
     float   foodConcentration = 0.0f;
+    Vector3 obstacleAvoidDir  = {0.0f, 0.0f, 0.0f};
+    float   obstacleUrgency   = 0.0f;
+    Behavior savedBehavior    = Behavior::WANDER;
 
     void updateBehavior(float dt)
     {
-        if (state.fear   > 0.35f) {
+        if (obstacleUrgency > 0.12f)
+        {
+            if (behavior != Behavior::AVOID_OBSTACLE)
+                savedBehavior = behavior;
+            behavior = Behavior::AVOID_OBSTACLE;
+            doAvoidObstacle(dt);
+            return;
+        }
+
+        if (behavior == Behavior::AVOID_OBSTACLE)
+            behavior = savedBehavior;
+
+        if (state.fear > 0.35f)
             behavior = Behavior::ESCAPE;
-        }
-        else if (state.hunger > 0.7f) {
+        else if (state.hunger > 0.7f)
             behavior = Behavior::SEEK_FOOD;
-        }
-        else {
+        else
             behavior = Behavior::WANDER;
-        }
 
         switch (behavior)
         {
+            case Behavior::AVOID_OBSTACLE:
+                doAvoidObstacle(dt);
+                break;
             case Behavior::WANDER:
-                doWander(dt);   
+                doWander(dt);
                 break;
-            case Behavior::SEEK_FOOD: 
-                doSeekFood(dt); 
+            case Behavior::SEEK_FOOD:
+                doSeekFood(dt);
                 break;
-            case Behavior::ESCAPE:    
-                doEscape(dt);   
+            case Behavior::ESCAPE:
+                doEscape(dt);
                 break;
+        }
+    }
+
+    void doAvoidObstacle(float /*dt*/)
+    {
+        swimMC.speed = 1.1f + obstacleUrgency * 0.7f;
+        if (Vector3Length(obstacleAvoidDir) > 0.1f)
+        {
+            targetYaw   = atan2f(obstacleAvoidDir.x, obstacleAvoidDir.z);
+            targetPitch = Clamp(obstacleAvoidDir.y, -1.0f, 1.0f);
+            turnMC.pitch = targetPitch * 0.75f;
+            steerTowardYaw();
         }
     }
 

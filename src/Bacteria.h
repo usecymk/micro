@@ -175,11 +175,17 @@ private:
     void applyMotorControls()
     {
         Vector3 thrustDir = heading;
-        if (bsm.behavior == Behavior::ESCAPE && Vector3Length(bsm.getFleeDirection()) > 0.1f) {
-            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 2.0f));
-            if (Vector3Length(blended) > 1e-4f) {
+        if (bsm.behavior == Behavior::AVOID_OBSTACLE && Vector3Length(bsm.getAvoidDirection()) > 0.1f)
+        {
+            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getAvoidDirection(), 2.5f));
+            if (Vector3Length(blended) > 1e-4f)
                 thrustDir = Vector3Normalize(blended);
-            }
+        }
+        else if (bsm.behavior == Behavior::ESCAPE && Vector3Length(bsm.getFleeDirection()) > 0.1f)
+        {
+            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 2.0f));
+            if (Vector3Length(blended) > 1e-4f)
+                thrustDir = Vector3Normalize(blended);
         }
 
         float thrust = bsm.swimMC.getThrust();

@@ -19,6 +19,8 @@
 // #include "src/Spirogyra.h"
 #include "src/PetriDish.h"
 #include "src/BoidBehavior.h"
+#include "src/Obstacle.h"
+#include "src/ObstaclePerception.h"
 
 static constexpr int   BOID_MAX        = 32;
 static constexpr int   BOID_INIT       = 16;
@@ -30,6 +32,8 @@ static constexpr float BACTERIA_NUTRITION = 45.0f;
 static constexpr float NUTRIENT_FEED_THRESHOLD = 0.18f;
 static constexpr float NUTRIENT_BITE           = 0.9f;
 static constexpr float NUTRIENT_FEED_RATE      = 0.8f;
+static constexpr float BACTERIA_OBSTACLE_RADIUS = 0.06f;
+static constexpr float AMOEBA_OBSTACLE_RADIUS   = 0.12f;
 
 struct BoidGroup {
     std::vector<BoidState>                 flockStates;
@@ -152,6 +156,14 @@ int main()
 
     NutrientField nutrientField;
     nutrientField.init(dish.radius, dish.floorY, dish.ceilY(), 1400, 7);
+
+    std::vector<Obstacle> obstacles = {
+        Obstacle::makeSphere({ 3.5f, dish.floorY + 2.2f,  2.0f}, 0.85f),
+        Obstacle::makeSphere({-4.5f, dish.floorY + 3.0f, -3.0f}, 0.55f),
+        Obstacle::makeBox({ 0.0f, dish.floorY + 2.0f, -5.5f}, {0.55f, 1.1f, 0.45f}),
+        Obstacle::makeBox({-2.5f, dish.floorY + 1.8f,  4.5f}, {0.75f, 0.9f, 0.35f}),
+        Obstacle::makeBox({ 5.5f, dish.floorY + 2.8f, -1.0f}, {0.4f,  0.7f, 0.4f})
+    };
 
     // Spirogyra spirogyra({-2.0f, dish.floorY + 2.6f, 1.0f});
     // spirogyra.setEnvironment(dish.floorY, dish.ceilY(), dish.radius * 0.6f);
@@ -397,10 +409,32 @@ int main()
 
                 {
                     Vector3 sensePos  = grp.members[i]->getCenterOfMass();
+                    Vector3 bHeading  = grp.members[i]->getHeading();
                     float   maxConc   = nutrientField.maxConcentration();
                     float   localConc = nutrientField.concentrationAt(sensePos) / maxConc;
                     Vector3 grad      = nutrientField.gradientAt(sensePos);
                     grp.members[i]->bsm.setFoodTarget(grad, localConc);
+
+                    AttentionMode attention = AttentionMode::WANDER;
+                    if (grp.members[i]->bsm.state.fear > 0.35f)
+                        attention = AttentionMode::FEARFUL;
+                    else if (grp.members[i]->bsm.state.hunger > 0.7f)
+                        attention = AttentionMode::HUNGRY;
+
+                    ObstacleSenseParams obsParams;
+                    obsParams.senseRadius     = 2.8f;
+                    obsParams.attentionRadius = 1.4f;
+                    obsParams.criticalRadius  = 0.35f;
+                    applySelectiveAttention(obsParams, attention);
+
+                    ObstacleSenseResult obsSense = senseObstacles(
+                        sensePos, bHeading, obstacles, obsParams,
+                        BACTERIA_OBSTACLE_RADIUS, attention);
+                    if (obsSense.detected)
+                        grp.members[i]->bsm.setObstacleSense(
+                            obsSense.avoidDirection, obsSense.urgency);
+                    else
+                        grp.members[i]->bsm.setObstacleSense({0.0f, 0.0f, 0.0f}, 0.0f);
 
                     if (localConc > NUTRIENT_FEED_THRESHOLD)
                     {
@@ -412,6 +446,7 @@ int main()
 
                 grp.members[i]->update(dt);
                 dish.applyBoundary(grp.members[i]->getNodes());
+                resolveObstacleCollisions(obstacles, grp.members[i]->getNodes(), BACTERIA_OBSTACLE_RADIUS);
 
                 Vector3 com = grp.members[i]->getCenterOfMass();
 
@@ -502,7 +537,8 @@ int main()
 
         float amoebaTemp = dish.temperatureAt(hunter);
         Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
-        amoeba.actuate(dt, cocci, allBoidStates, amoebaTemp, amoebaTempGradient, AMOEBA_TEMP_TARGET);
+        amoeba.actuate(dt, cocci, allBoidStates, amoebaTemp, amoebaTempGradient,
+                       AMOEBA_TEMP_TARGET, obstacles);
         cocci.actuate(dt, dish);
 
         if (distCocci < 0.667f)
@@ -515,6 +551,8 @@ int main()
         cocci.updatePhysicsImplicit(dt);
         dish.applyBoundary(amoeba.getNodes());
         dish.applyBoundary(cocci.getNodes());
+        resolveObstacleCollisions(obstacles, amoeba.getNodes(), AMOEBA_OBSTACLE_RADIUS);
+        resolveObstacleCollisions(obstacles, cocci.getNodes(), 0.08f);
 
         if (fpvMode)
         {
@@ -539,6 +577,8 @@ int main()
         BeginMode3D(camera);
 
         dish.draw(AMOEBA_TEMP_TARGET);
+        for (const auto &obs : obstacles)
+            obs.draw();
         nutrientField.draw(camera);
         // spirogyra.draw();
         amoeba.draw();
