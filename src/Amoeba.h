@@ -10,6 +10,7 @@
 #include "Cocci.h"  
 #include "BoidBehavior.h" 
 #include "BehaviorStateMachine.h"
+#include "ObstaclePerception.h"
 
 class Amoeba : public PhysicsBody
 {
@@ -27,6 +28,11 @@ private:
 
     Vector3 wanderTargetHeading;
     float wanderTimer = 0.0f;
+
+    bool    avoidingObstacle = false;
+    Vector3 savedIntentHeading = {1.0f, 0.0f, 0.0f};
+    float   intentResumeTimer = 0.0f;
+    float   obstacleAvoidUrgency = 0.0f;
 
     float floorY = -5.0f; 
 
@@ -165,6 +171,8 @@ public:
         return nodes[0].position;
     }
 
+    Vector3 getHeading() const { return heading; }
+
     float getHunger() const { return internalHunger; }
     float getTemperatureStress() const { return internalTempStress; }
     float getHungerThreshold() const { return myStateMachine.getHungerThreshold(); }
@@ -178,6 +186,7 @@ public:
 
     const char* getStateName() const
     {
+        if (obstacleAvoidUrgency > 0.12f) return "Avoiding obstacle";
         if (myStateMachine.isScared()) return "Avoiding";
         if (myStateMachine.isHungry()) return "Hungry / seeking prey";
         if (myStateMachine.isSeekingTemperature()) return "Seeking temperature";
@@ -200,7 +209,8 @@ public:
                  const std::vector<BoidState>& flockStates,
                  float currentTemperature,
                  Vector3 temperatureGradient,
-                 float targetTemperature)
+                 float targetTemperature,
+                 const std::vector<Obstacle>& obstacles)
     {
         for (auto& pf : pendingForces) { pf = Vector3Zero(); }
         
@@ -318,6 +328,53 @@ public:
                 wanderTimer = (float)GetRandomValue(2, 5); 
             }
             targetHeading = wanderTargetHeading;
+        }
+
+        ObstacleSenseParams obsParams;
+        obsParams.senseRadius     = 6.5f;
+        obsParams.attentionRadius = 3.0f;
+        obsParams.criticalRadius  = 0.55f;
+
+        AttentionMode attention = AttentionMode::WANDER;
+        if (myStateMachine.isScared())
+            attention = AttentionMode::FEARFUL;
+        else if (myStateMachine.isHungry())
+            attention = AttentionMode::HUNGRY;
+        applySelectiveAttention(obsParams, attention);
+
+        ObstacleSenseResult obsSense = senseObstacles(
+            myPos, heading, obstacles, obsParams, 0.12f, attention);
+        obstacleAvoidUrgency = obsSense.urgency;
+
+        if (obsSense.detected && obsSense.urgency > 0.12f)
+        {
+            if (!avoidingObstacle)
+            {
+                savedIntentHeading = targetHeading;
+                avoidingObstacle = true;
+            }
+
+            if (obsSense.urgency > 0.65f)
+                targetHeading = obsSense.avoidDirection;
+            else
+                targetHeading = Vector3Normalize(
+                    Vector3Lerp(targetHeading, obsSense.avoidDirection, obsSense.urgency));
+
+            speedMultiplier *= 1.0f + obsSense.urgency * 0.45f;
+            stretchFactor   *= 1.0f + obsSense.urgency * 0.25f;
+        }
+        else if (avoidingObstacle)
+        {
+            avoidingObstacle = false;
+            intentResumeTimer = 0.5f;
+        }
+
+        if (intentResumeTimer > 0.0f)
+        {
+            intentResumeTimer -= dt;
+            float resumeBlend = Clamp(intentResumeTimer / 0.5f, 0.0f, 1.0f);
+            targetHeading = Vector3Normalize(
+                Vector3Lerp(savedIntentHeading, targetHeading, 1.0f - resumeBlend));
         }
 
         heading = Vector3Lerp(heading, targetHeading, dt * 3.5f);
