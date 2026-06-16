@@ -20,36 +20,41 @@
 #include "src/PetriDish.h"
 #include "src/BoidBehavior.h"
 
-static constexpr int   BOID_MAX        = 32;
-static constexpr int   BOID_INIT       = 16;
-static constexpr int   NUM_GROUPS      = 3;
-static constexpr float DISPERSE_DUR    = 5.0f;
+static constexpr int BOID_MAX = 32;
+static constexpr int BOID_INIT = 16;
+static constexpr int NUM_GROUPS = 3;
+static constexpr float DISPERSE_DUR = 5.0f;
 static constexpr float AMOEBA_TEMP_TARGET = 40.0f;
 static constexpr float PREDATOR_AVOID_RADIUS = 2.2f;
 static constexpr float BACTERIA_CONSUME_RADIUS = 0.75f;
 static constexpr float BACTERIA_NUTRITION = 18.0f;
 static constexpr float NUTRIENT_FEED_THRESHOLD = 0.18f;
-static constexpr float NUTRIENT_BITE           = 0.9f;
-static constexpr float NUTRIENT_FEED_RATE      = 0.8f;
+static constexpr float NUTRIENT_BITE = 0.9f;
+static constexpr float NUTRIENT_FEED_RATE = 0.8f;
 
-struct BoidGroup {
-    std::vector<BoidState>                 flockStates;
+struct BoidGroup
+{
+    std::vector<BoidState> flockStates;
     std::vector<std::unique_ptr<Bacteria>> members;
-    std::vector<float>                     hitCooldown;
-    BoidBehavior                           params;
-    float                                  disperseTimer = 0.0f;
-    float                                  spawnTimer    = 1.0f;
-    Vector3                                spawnCenter   = {0.0f, 2.0f, 0.0f};
-    int                                    spawnCount    = 0;
+    std::vector<float> hitCooldown;
+    BoidBehavior params;
+    float disperseTimer = 0.0f;
+    float spawnTimer = 1.0f;
+    Vector3 spawnCenter = {0.0f, 2.0f, 0.0f};
+    int spawnCount = 0;
 
-    int liveCount() const {
+    int liveCount() const
+    {
         int n = 0;
-        for (auto &b : members) n += b->bsm.state.alive ? 1 : 0;
+        for (auto &b : members)
+            n += b->bsm.state.alive ? 1 : 0;
         return n;
     }
-    int deadSlot() const {
+    int deadSlot() const
+    {
         for (int i = 0; i < BOID_MAX; i++)
-            if (!members[i]->bsm.state.alive) return i;
+            if (!members[i]->bsm.state.alive)
+                return i;
         return -1;
     }
 };
@@ -137,9 +142,9 @@ int main()
     PetriDish dish;
 
     FluidEnvironment water;
-    water.density  = 1000.0f;
+    water.density = 1000.0f;
     water.surfaceY = dish.ceilY();
-    water.gravity  = {0.0f, -9.81f, 0.0f};
+    water.gravity = {0.0f, -9.81f, 0.0f};
 
     Amoeba amoeba({0.0f, dish.floorY + 2.5f, 0.0f});
     amoeba.setFloorY(dish.floorY);
@@ -160,36 +165,34 @@ int main()
     // spirogyra.addForceGenerator(std::make_unique<BuoyancyForce>(&water));
     // spirogyra.addForceGenerator(std::make_unique<DragForce>(0.9f));
     const Vector3 groupCenters[NUM_GROUPS] = {
-        { 3.0f, 1.5f,  0.0f},
-        {-1.5f, 3.5f,  2.6f},
-        {-1.5f, 2.5f, -2.6f}
-    };
+        {3.0f, 1.5f, 0.0f},
+        {-1.5f, 3.5f, 2.6f},
+        {-1.5f, 2.5f, -2.6f}};
 
     for (int g = 0; g < NUM_GROUPS; g++)
     {
-        BoidGroup &grp     = groups[g];
-        grp.spawnCenter    = groupCenters[g];
+        BoidGroup &grp = groups[g];
+        grp.spawnCenter = groupCenters[g];
         grp.params.separationRadius = 0.18f;
-        grp.params.alignmentRadius  = 0.8f;
-        grp.params.cohesionRadius   = 0.8f;
+        grp.params.alignmentRadius = 0.8f;
+        grp.params.cohesionRadius = 0.8f;
         grp.params.separationWeight = 1.8f;
-        grp.params.alignmentWeight  = 2.5f;
-        grp.params.cohesionWeight   = 1.5f;
-        grp.params.maxForce         = 0.15f;
+        grp.params.alignmentWeight = 2.5f;
+        grp.params.cohesionWeight = 1.5f;
+        grp.params.maxForce = 0.15f;
 
         grp.flockStates.resize(BOID_MAX);
         grp.hitCooldown.assign(BOID_MAX, 0.0f);
 
         for (int i = 0; i < BOID_MAX; i++)
         {
-            float   angle = (float)i / BOID_MAX * 2.0f * PI;
-            float   r     = 0.12f + 0.08f * ((float)(i % 3) / 2.0f);
-            float   yOff  = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.4f;
-            Vector3 pos   = {
+            float angle = (float)i / BOID_MAX * 2.0f * PI;
+            float r = 0.12f + 0.08f * ((float)(i % 3) / 2.0f);
+            float yOff = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.4f;
+            Vector3 pos = {
                 groupCenters[g].x + r * cosf(angle),
                 groupCenters[g].y + yOff,
-                groupCenters[g].z + r * sinf(angle)
-            };
+                groupCenters[g].z + r * sinf(angle)};
             grp.members.push_back(std::make_unique<Bacteria>(pos));
             Bacteria &b = *grp.members.back();
             b.addForceGenerator(std::make_unique<GravityForce>(water.gravity));
@@ -203,8 +206,8 @@ int main()
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    const int screenWidth  = 800;
-    const int screenHeight = 450;
+    const int screenWidth = 1080;
+    const int screenHeight = 720;
 
     InitWindow(screenWidth, screenHeight, "Micro-Life 3D");
     Camera3D camera = {{12.0f, 10.0f, 12.0f},
@@ -214,15 +217,22 @@ int main()
                        CAMERA_PERSPECTIVE};
 
     bool showDebug = false;
-    bool fpvMode   = false;
-    int  fpvGroup  = 0;
-    int  fpvIdx    = 0;
+    bool fpvMode = false;
+    int fpvGroup = 0;
+    int fpvIdx = 0;
 
-    auto findNextLive = [&]() {
-        for (int attempt = 0; attempt < NUM_GROUPS * BOID_MAX; attempt++) {
+    auto findNextLive = [&]()
+    {
+        for (int attempt = 0; attempt < NUM_GROUPS * BOID_MAX; attempt++)
+        {
             fpvIdx++;
-            if (fpvIdx >= BOID_MAX) { fpvIdx = 0; fpvGroup = (fpvGroup + 1) % NUM_GROUPS; }
-            if (groups[fpvGroup].members[fpvIdx]->bsm.state.alive) return;
+            if (fpvIdx >= BOID_MAX)
+            {
+                fpvIdx = 0;
+                fpvGroup = (fpvGroup + 1) % NUM_GROUPS;
+            }
+            if (groups[fpvGroup].members[fpvIdx]->bsm.state.alive)
+                return;
         }
     };
 
@@ -236,37 +246,50 @@ int main()
             UpdateCamera(&camera, CAMERA_FREE);
 
         Vector3 hunter = amoeba.getCenterPosition();
-        Vector3 prey   = cocci.getCenterPosition();
+        Vector3 prey = cocci.getCenterPosition();
 
-        Vector3 dxCocci = Vector3Subtract(prey, hunter); dxCocci.y = 0.0f;
+        Vector3 dxCocci = Vector3Subtract(prey, hunter);
+        dxCocci.y = 0.0f;
         float distCocci = Vector3Length(dxCocci);
 
         // ── boid groups update ────────────────────────────────────────────────
-        if (IsKeyDown(KEY_T)) {
-            for (auto &grp : groups) {
-                grp.params.cohesionWeight   = 3.5f;
+        if (IsKeyDown(KEY_T))
+        {
+            for (auto &grp : groups)
+            {
+                grp.params.cohesionWeight = 3.5f;
                 grp.params.separationWeight = 0.8f;
-                grp.params.alignmentWeight  = 2.5f;
+                grp.params.alignmentWeight = 2.5f;
             }
-        } else if (IsKeyDown(KEY_X)) {
-            for (auto &grp : groups) {
-                grp.params.cohesionWeight   = 0.3f;
+        }
+        else if (IsKeyDown(KEY_X))
+        {
+            for (auto &grp : groups)
+            {
+                grp.params.cohesionWeight = 0.3f;
                 grp.params.separationWeight = 4.0f;
-                grp.params.alignmentWeight  = 0.5f;
+                grp.params.alignmentWeight = 0.5f;
             }
-        } else if (IsKeyDown(KEY_R)) {
-            for (auto &grp : groups) {
-                grp.params.cohesionWeight   = 1.5f;
+        }
+        else if (IsKeyDown(KEY_R))
+        {
+            for (auto &grp : groups)
+            {
+                grp.params.cohesionWeight = 1.5f;
                 grp.params.separationWeight = 1.8f;
-                grp.params.alignmentWeight  = 2.5f;
+                grp.params.alignmentWeight = 2.5f;
             }
         }
-        if (IsKeyPressed(KEY_G)) showDebug = !showDebug;
-        if (IsKeyPressed(KEY_F)) {
+        if (IsKeyPressed(KEY_G))
+            showDebug = !showDebug;
+        if (IsKeyPressed(KEY_F))
+        {
             fpvMode = !fpvMode;
-            if (fpvMode) findNextLive();
+            if (fpvMode)
+                findNextLive();
         }
-        if (fpvMode && IsKeyPressed(KEY_N)) findNextLive();
+        if (fpvMode && IsKeyPressed(KEY_N))
+            findNextLive();
 
         // Combined boid snapshot for amoeba
         std::vector<BoidState> allBoidStates;
@@ -283,8 +306,8 @@ int main()
                 if (grp.disperseTimer <= 0.0f)
                 {
                     grp.params.separationWeight = 1.8f;
-                    grp.params.cohesionWeight   = 1.5f;
-                    grp.params.alignmentWeight  = 2.5f;
+                    grp.params.cohesionWeight = 1.5f;
+                    grp.params.alignmentWeight = 2.5f;
                 }
             }
 
@@ -298,14 +321,15 @@ int main()
                     int slot = grp.deadSlot();
                     if (slot >= 0)
                     {
-                        Vector3 centroid   = Vector3Zero();
-                        Vector3 avgVel     = Vector3Zero();
+                        Vector3 centroid = Vector3Zero();
+                        Vector3 avgVel = Vector3Zero();
                         Vector3 avgHeading = Vector3Zero();
                         int lc = 0;
                         for (auto &b : grp.members)
                         {
-                            if (!b->bsm.state.alive) continue;
-                            centroid   = Vector3Add(centroid,   b->getCenterOfMass());
+                            if (!b->bsm.state.alive)
+                                continue;
+                            centroid = Vector3Add(centroid, b->getCenterOfMass());
                             avgHeading = Vector3Add(avgHeading, b->getHeading());
                             auto &ns = b->getNodes();
                             for (int n = 0; n < Bacteria::BODY_NODES; n++)
@@ -315,13 +339,17 @@ int main()
                         if (lc > 0)
                         {
                             centroid = Vector3Scale(centroid, 1.0f / lc);
-                            avgVel   = Vector3Scale(avgVel,   1.0f / (lc * Bacteria::BODY_NODES));
+                            avgVel = Vector3Scale(avgVel, 1.0f / (lc * Bacteria::BODY_NODES));
                             if (Vector3Length(avgHeading) > 1e-4f)
                                 avgHeading = Vector3Normalize(avgHeading);
                             else
                                 avgHeading = {0.0f, 0.0f, -1.0f};
                         }
-                        else { centroid = grp.spawnCenter; avgHeading = {0.0f, 0.0f, -1.0f}; }
+                        else
+                        {
+                            centroid = grp.spawnCenter;
+                            avgHeading = {0.0f, 0.0f, -1.0f};
+                        }
 
                         float ox = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.08f;
                         float oz = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.08f;
@@ -330,10 +358,10 @@ int main()
 
                         // orient nodes along group heading so thrust goes the right way
                         {
-                            auto &ns  = grp.members[slot]->getNodes();
+                            auto &ns = grp.members[slot]->getNodes();
                             Vector3 h = avgHeading;
-                            ns[0].position = Vector3Add(spawnPos, Vector3Scale(h,  0.080f));
-                            ns[1].position = Vector3Add(spawnPos, Vector3Scale(h,  0.026f));
+                            ns[0].position = Vector3Add(spawnPos, Vector3Scale(h, 0.080f));
+                            ns[1].position = Vector3Add(spawnPos, Vector3Scale(h, 0.026f));
                             ns[2].position = Vector3Add(spawnPos, Vector3Scale(h, -0.026f));
                             ns[3].position = Vector3Add(spawnPos, Vector3Scale(h, -0.080f));
                             for (int fi = 0; fi < Bacteria::FLAG_NODES; fi++)
@@ -350,16 +378,16 @@ int main()
                 }
             }
 
-        nutrientField.update(dt);
+            nutrientField.update(dt);
 
-        // spirogyra.update(dt);
-        // dish.applyBoundary(spirogyra.getNodes(), 0.4f, 0.06f);
-        // {
-        //     Vector3 sc = spirogyra.getCenterPosition();
-        //     float sr = sqrtf(sc.x * sc.x + sc.z * sc.z);
-        //     if (sr > dish.radius * 0.9f && sr > 1e-4f)
-        //         spirogyra.onWallHit({-sc.x / sr, 0.0f, -sc.z / sr});
-        // }
+            // spirogyra.update(dt);
+            // dish.applyBoundary(spirogyra.getNodes(), 0.4f, 0.06f);
+            // {
+            //     Vector3 sc = spirogyra.getCenterPosition();
+            //     float sr = sqrtf(sc.x * sc.x + sc.z * sc.z);
+            //     if (sr > dish.radius * 0.9f && sr > 1e-4f)
+            //         spirogyra.onWallHit({-sc.x / sr, 0.0f, -sc.z / sr});
+            // }
 
             for (int i = 0; i < BOID_MAX; i++)
             {
@@ -378,26 +406,31 @@ int main()
             // compute live centroid for disperse leash
             Vector3 grpCentroid = Vector3Zero();
             int liveCnt = 0;
-            for (int i = 0; i < BOID_MAX; i++) {
-                if (grp.members[i]->bsm.state.alive) {
+            for (int i = 0; i < BOID_MAX; i++)
+            {
+                if (grp.members[i]->bsm.state.alive)
+                {
                     grpCentroid = Vector3Add(grpCentroid, grp.members[i]->getCenterOfMass());
                     liveCnt++;
                 }
             }
-            if (liveCnt > 0) grpCentroid = Vector3Scale(grpCentroid, 1.0f / liveCnt);
+            if (liveCnt > 0)
+                grpCentroid = Vector3Scale(grpCentroid, 1.0f / liveCnt);
 
             const float maxDisperse = 1.5f;
 
             for (int i = 0; i < BOID_MAX; i++)
             {
-                if (grp.hitCooldown[i] > 0.0f) grp.hitCooldown[i] -= dt;
-                if (!grp.members[i]->bsm.state.alive) continue;
+                if (grp.hitCooldown[i] > 0.0f)
+                    grp.hitCooldown[i] -= dt;
+                if (!grp.members[i]->bsm.state.alive)
+                    continue;
 
                 {
-                    Vector3 sensePos  = grp.members[i]->getCenterOfMass();
-                    float   maxConc   = nutrientField.maxConcentration();
-                    float   localConc = nutrientField.concentrationAt(sensePos) / maxConc;
-                    Vector3 grad      = nutrientField.gradientAt(sensePos);
+                    Vector3 sensePos = grp.members[i]->getCenterOfMass();
+                    float maxConc = nutrientField.maxConcentration();
+                    float localConc = nutrientField.concentrationAt(sensePos) / maxConc;
+                    Vector3 grad = nutrientField.gradientAt(sensePos);
                     grp.members[i]->bsm.setFoodTarget(grad, localConc);
 
                     if (localConc > NUTRIENT_FEED_THRESHOLD)
@@ -416,18 +449,18 @@ int main()
                 if (grp.disperseTimer > 0.0f && liveCnt > 0)
                 {
                     Vector3 toCentroid = Vector3Subtract(grpCentroid, com);
-                    float   dist       = Vector3Length(toCentroid);
+                    float dist = Vector3Length(toCentroid);
                     if (dist > maxDisperse)
                     {
                         Vector3 leashDir = Vector3Scale(toCentroid, 1.0f / dist);
-                        float   strength = (dist - maxDisperse) * 2.0f;
-                        auto   &ns       = grp.members[i]->getNodes();
+                        float strength = (dist - maxDisperse) * 2.0f;
+                        auto &ns = grp.members[i]->getNodes();
                         for (int n = 0; n < Bacteria::BODY_NODES; n++)
                             ns[n].force = Vector3Add(ns[n].force, Vector3Scale(leashDir, strength));
                     }
                 }
 
-                float   r   = sqrtf(com.x * com.x + com.z * com.z);
+                float r = sqrtf(com.x * com.x + com.z * com.z);
                 if (r > dish.radius * 0.82f)
                 {
                     Vector3 awayDir = {-com.x / r, 0.0f, -com.z / r};
@@ -454,39 +487,40 @@ int main()
                     amoeba.feed(BACTERIA_NUTRITION);
 
                     // whole boid disperses when one of its members is eaten
-                    grp.disperseTimer           = DISPERSE_DUR;
+                    grp.disperseTimer = DISPERSE_DUR;
                     grp.params.separationWeight = 4.5f;
-                    grp.params.cohesionWeight   = 0.1f;
-                    grp.params.alignmentWeight  = 0.5f;
+                    grp.params.cohesionWeight = 0.1f;
+                    grp.params.alignmentWeight = 0.5f;
                 }
             }
         }
         // ── inter-flagella collision (no hit, just separation) ────────────────
         {
-            std::vector<Bacteria*> live;
+            std::vector<Bacteria *> live;
             live.reserve(NUM_GROUPS * BOID_MAX);
             for (int g = 0; g < NUM_GROUPS; g++)
                 for (auto &b : groups[g].members)
-                    if (b->bsm.state.alive) live.push_back(b.get());
+                    if (b->bsm.state.alive)
+                        live.push_back(b.get());
 
             const float cRad = 0.08f;
             for (int a = 0; a < (int)live.size(); a++)
             {
                 for (int b = a + 1; b < (int)live.size(); b++)
                 {
-                    Vector3 ca   = live[a]->getCenterOfMass();
-                    Vector3 cb   = live[b]->getCenterOfMass();
+                    Vector3 ca = live[a]->getCenterOfMass();
+                    Vector3 cb = live[b]->getCenterOfMass();
                     Vector3 diff = Vector3Subtract(ca, cb);
-                    float   dist = Vector3Length(diff);
+                    float dist = Vector3Length(diff);
                     if (dist < cRad && dist > 1e-6f)
                     {
-                        Vector3 push    = Vector3Scale(diff, 1.0f / dist);
-                        float   impulse = (cRad - dist) * 3.0f;
-                        auto   &nsA     = live[a]->getNodes();
-                        auto   &nsB     = live[b]->getNodes();
+                        Vector3 push = Vector3Scale(diff, 1.0f / dist);
+                        float impulse = (cRad - dist) * 3.0f;
+                        auto &nsA = live[a]->getNodes();
+                        auto &nsB = live[b]->getNodes();
                         for (int n = 0; n < Bacteria::BODY_NODES; n++)
                         {
-                            nsA[n].velocity = Vector3Add(nsA[n].velocity, Vector3Scale(push,  impulse * 0.5f));
+                            nsA[n].velocity = Vector3Add(nsA[n].velocity, Vector3Scale(push, impulse * 0.5f));
                             nsB[n].velocity = Vector3Add(nsB[n].velocity, Vector3Scale(push, -impulse * 0.5f));
                         }
                     }
@@ -515,14 +549,14 @@ int main()
         {
             if (!groups[fpvGroup].members[fpvIdx]->bsm.state.alive)
                 findNextLive();
-            Bacteria *fpvB  = groups[fpvGroup].members[fpvIdx].get();
-            Vector3   com   = fpvB->getCenterOfMass();
-            Vector3   h     = fpvB->getHeading();
-            Vector3   worldUp = {0.0f, 1.0f, 0.0f};
-            camera.position = Vector3Add(com, Vector3Scale(h,  0.04f));
-            camera.target   = Vector3Add(com, Vector3Scale(h,  0.5f));
-            camera.up       = worldUp;
-            camera.fovy     = 70.0f;
+            Bacteria *fpvB = groups[fpvGroup].members[fpvIdx].get();
+            Vector3 com = fpvB->getCenterOfMass();
+            Vector3 h = fpvB->getHeading();
+            Vector3 worldUp = {0.0f, 1.0f, 0.0f};
+            camera.position = Vector3Add(com, Vector3Scale(h, 0.04f));
+            camera.target = Vector3Add(com, Vector3Scale(h, 0.5f));
+            camera.up = worldUp;
+            camera.fovy = 70.0f;
         }
         else
         {
@@ -562,27 +596,30 @@ int main()
             {
                 for (int i = 0; i < BOID_MAX; i++)
                 {
-                    if (!groups[g].members[i]->bsm.state.alive) continue;
+                    if (!groups[g].members[i]->bsm.state.alive)
+                        continue;
 
                     Vector3 com = groups[g].members[i]->getCenterOfMass();
 
                     Vector3 camDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-                    Vector3 toCom  = Vector3Subtract(com, camera.position);
-                    if (Vector3DotProduct(camDir, toCom) <= 0.0f) continue;
+                    Vector3 toCom = Vector3Subtract(com, camera.position);
+                    if (Vector3DotProduct(camDir, toCom) <= 0.0f)
+                        continue;
 
-                    Vector2 sp  = GetWorldToScreen(com, camera);
-                    if (sp.x < 0 || sp.x > screenWidth || sp.y < 0 || sp.y > screenHeight) continue;
+                    Vector2 sp = GetWorldToScreen(com, camera);
+                    if (sp.x < 0 || sp.x > screenWidth || sp.y < 0 || sp.y > screenHeight)
+                        continue;
 
                     int x = (int)sp.x - 30;
                     int y = (int)sp.y - 36;
                     int w = 60, h = 5;
 
-                    DrawRectangle(x, y,     w, h, {40, 40, 40, 180});
-                    DrawRectangle(x, y,     (int)(w * groups[g].members[i]->bsm.state.hunger), h, ORANGE);
+                    DrawRectangle(x, y, w, h, {40, 40, 40, 180});
+                    DrawRectangle(x, y, (int)(w * groups[g].members[i]->bsm.state.hunger), h, ORANGE);
                     DrawRectangleLines(x, y, w, h, GRAY);
 
                     DrawRectangle(x, y + 7, w, h, {40, 40, 40, 180});
-                    DrawRectangle(x, y + 7, (int)(w * groups[g].members[i]->bsm.state.fear),   h, RED);
+                    DrawRectangle(x, y + 7, (int)(w * groups[g].members[i]->bsm.state.fear), h, RED);
                     DrawRectangleLines(x, y + 7, w, h, GRAY);
                 }
 
