@@ -354,7 +354,7 @@ int main()
                                 ns[Bacteria::BODY_NODES + fi].position = Vector3Add(
                                     ns[3].position,
                                     Vector3Scale(h, -(fi + 1) * 0.0045f));
-                            grp.members[slot]->bsm.setHeading(h, atan2f(h.x, h.z));
+                            grp.members[slot]->bsm.setHeadingAndTarget(h, atan2f(h.x, h.z));
                             for (int n = 0; n < Bacteria::TOTAL_NODES; n++)
                                 ns[n].velocity = avgVel;
                         }
@@ -412,7 +412,7 @@ int main()
                     Vector3 bHeading  = grp.members[i]->getHeading();
                     float   maxConc   = nutrientField.maxConcentration();
                     float   localConc = nutrientField.concentrationAt(sensePos) / maxConc;
-                    Vector3 grad      = nutrientField.gradientAt(sensePos);
+                    Vector3 grad      = nutrientField.bestFoodDirection(sensePos);
                     grp.members[i]->bsm.setFoodTarget(grad, localConc);
 
                     AttentionMode attention = AttentionMode::WANDER;
@@ -444,11 +444,16 @@ int main()
                     }
                 }
 
-                grp.members[i]->update(dt);
+                Vector3 com         = grp.members[i]->getCenterOfMass();
+                float   ambientTemp = dish.temperatureAt(com);
+                Vector3 tempGrad    = dish.temperatureGradientAt(com);
+                float   r           = sqrtf(com.x * com.x + com.z * com.z);
+                bool    nearWall    = r > dish.radius * 0.82f;
+                grp.members[i]->update(dt, ambientTemp, tempGrad, nearWall);
                 dish.applyBoundary(grp.members[i]->getNodes());
                 resolveObstacleCollisions(obstacles, grp.members[i]->getNodes(), BACTERIA_OBSTACLE_RADIUS);
 
-                Vector3 com = grp.members[i]->getCenterOfMass();
+                com = grp.members[i]->getCenterOfMass();
 
                 if (grp.disperseTimer > 0.0f && liveCnt > 0)
                 {
@@ -462,13 +467,6 @@ int main()
                         for (int n = 0; n < Bacteria::BODY_NODES; n++)
                             ns[n].force = Vector3Add(ns[n].force, Vector3Scale(leashDir, strength));
                     }
-                }
-
-                float   r   = sqrtf(com.x * com.x + com.z * com.z);
-                if (r > dish.radius * 0.82f)
-                {
-                    Vector3 awayDir = {-com.x / r, 0.0f, -com.z / r};
-                    grp.members[i]->onWallHit(awayDir);
                 }
 
                 float predatorDist = Vector3Distance(com, hunter);
@@ -535,24 +533,23 @@ int main()
             }
         }
 
-        float amoebaTemp = dish.temperatureAt(hunter);
-        Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
-        amoeba.actuate(dt, cocci, allBoidStates, amoebaTemp, amoebaTempGradient,
-                       AMOEBA_TEMP_TARGET, obstacles);
-        cocci.actuate(dt, dish);
-
-        if (distCocci < 0.667f)
-        {
-            amoeba.feed(100.0f);
-            cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);
-        }
-
-        amoeba.updatePhysicsImplicit(dt);
-        cocci.updatePhysicsImplicit(dt);
-        dish.applyBoundary(amoeba.getNodes());
-        dish.applyBoundary(cocci.getNodes());
-        resolveObstacleCollisions(obstacles, amoeba.getNodes(), AMOEBA_OBSTACLE_RADIUS);
-        resolveObstacleCollisions(obstacles, cocci.getNodes(), 0.08f);
+        // DEBUG: amoeba disabled
+        // float amoebaTemp = dish.temperatureAt(hunter);
+        // Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
+        // amoeba.actuate(dt, cocci, allBoidStates, amoebaTemp, amoebaTempGradient,
+        //                AMOEBA_TEMP_TARGET, obstacles);
+        // cocci.actuate(dt, dish);
+        // if (distCocci < 0.667f)
+        // {
+        //     amoeba.feed(100.0f);
+        //     cocci.respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f);
+        // }
+        // amoeba.updatePhysicsImplicit(dt);
+        // cocci.updatePhysicsImplicit(dt);
+        // dish.applyBoundary(amoeba.getNodes());
+        // dish.applyBoundary(cocci.getNodes());
+        // resolveObstacleCollisions(obstacles, amoeba.getNodes(), AMOEBA_OBSTACLE_RADIUS);
+        // resolveObstacleCollisions(obstacles, cocci.getNodes(), 0.08f);
 
         if (fpvMode)
         {
@@ -581,13 +578,29 @@ int main()
             obs.draw();
         nutrientField.draw(camera);
         // spirogyra.draw();
-        amoeba.draw();
-        cocci.draw();
+        // DEBUG: amoeba.draw();
+        // DEBUG: cocci.draw();
         // for (auto &b : flock)
         //     b.draw(showDebug);
         for (int g = 0; g < NUM_GROUPS; g++)
             for (auto &b : groups[g].members)
                 b->draw(showDebug);
+
+        // DEBUG: draw food gradient arrow for the one bacterium
+        if (groups[0].members[0]->bsm.state.alive)
+        {
+            Vector3 dbPos  = groups[0].members[0]->getCenterOfMass();
+            Vector3 grad   = nutrientField.bestFoodDirection(dbPos);
+            float   gLen   = Vector3Length(grad);
+            if (gLen > 1e-5f)
+            {
+                Vector3 gDir = Vector3Scale(grad, 1.0f / gLen);
+                DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), GREEN);
+                DrawSphere(Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), 0.03f, GREEN);
+            }
+            // also draw heading in white
+            DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(groups[0].members[0]->getHeading(), 0.4f)), WHITE);
+        }
 
         dish.drawShell();
 
@@ -596,12 +609,62 @@ int main()
         float camTemp = dish.temperatureAt(camera.position);
         DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
 
+        // DEBUG: single-bacterium state panel
+        if (groups[0].members[0]->bsm.state.alive)
+        {
+            Bacteria &db  = *groups[0].members[0];
+            const auto &st = db.bsm.state;
+
+            const char *behaviorName = "?";
+            switch (db.bsm.behavior) {
+                case Behavior::WANDER:         behaviorName = "WANDER";        break;
+                case Behavior::SEEK_FOOD:      behaviorName = "SEEK_FOOD";     break;
+                case Behavior::ESCAPE:         behaviorName = "ESCAPE";        break;
+                case Behavior::SEEK_TEMP:      behaviorName = "SEEK_TEMP";     break;
+                case Behavior::AVOID_OBSTACLE: behaviorName = "AVOID_OBSTACLE";break;
+            }
+
+            int px = 10, py = 55;
+            DrawRectangle(px - 4, py - 4, 300, 145, {0, 0, 0, 160});
+
+            DrawText(TextFormat("Behavior: %s", behaviorName), px, py,      14, YELLOW);
+            DrawText(TextFormat("Hunger:   %.2f", st.hunger),  px, py + 18, 14, ORANGE);
+            DrawText(TextFormat("Fear:     %.2f", st.fear),    px, py + 34, 14, RED);
+            DrawText(TextFormat("TmpStress:%.2f", st.tempStress), px, py + 50, 14, {80, 180, 255, 255});
+
+            float bTemp = dish.temperatureAt(db.getCenterOfMass());
+            DrawText(TextFormat("Amb temp: %.1f C", bTemp),   px, py + 66, 14, {200, 200, 200, 255});
+            DrawText(TextFormat("nearWall: %s",
+                [&]{ float r2 = db.getCenterOfMass().x * db.getCenterOfMass().x +
+                                db.getCenterOfMass().z * db.getCenterOfMass().z;
+                     return sqrtf(r2) > dish.radius * 0.82f ? "YES" : "no"; }()),
+                px, py + 82, 14, {200, 200, 200, 255});
+
+            Vector3 dbPos     = db.getCenterOfMass();
+            float   maxConc   = nutrientField.maxConcentration();
+            float   localConc = nutrientField.concentrationAt(dbPos) / maxConc;
+            Vector3 foodDir   = nutrientField.bestFoodDirection(dbPos);
+            float   foodLen   = Vector3Length(foodDir);
+            DrawText(TextFormat("localConc:%.3f", localConc),
+                     px, py + 98, 14, {180, 255, 180, 255});
+            if (foodLen > 1e-5f)
+                DrawText(TextFormat("foodDir: (%.2f, %.2f, %.2f)", foodDir.x, foodDir.y, foodDir.z),
+                         px, py + 114, 14, {180, 255, 180, 255});
+            else
+                DrawText("foodDir: zero (will wander)", px, py + 114, 14, RED);
+        }
+        else
+        {
+            DrawText("Bacterium DEAD", 10, 55, 14, RED);
+        }
+
         if (showDebug)
         {
-            Vector3 amoebaPos = amoeba.getCenterPosition();
-            amoebaTemp = dish.temperatureAt(amoebaPos);
-            if (isLookingAt(amoebaPos, camera, screenWidth, screenHeight))
-                drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
+            // DEBUG: amoeba panel disabled
+            // Vector3 amoebaPos = amoeba.getCenterPosition();
+            // float amoebaTemp = dish.temperatureAt(amoebaPos);
+            // if (isLookingAt(amoebaPos, camera, screenWidth, screenHeight))
+            //     drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
 
             for (int g = 0; g < NUM_GROUPS; g++)
             {
@@ -619,16 +682,20 @@ int main()
                     if (sp.x < 0 || sp.x > screenWidth || sp.y < 0 || sp.y > screenHeight) continue;
 
                     int x = (int)sp.x - 30;
-                    int y = (int)sp.y - 36;
+                    int y = (int)sp.y - 43;
                     int w = 60, h = 5;
 
-                    DrawRectangle(x, y,     w, h, {40, 40, 40, 180});
-                    DrawRectangle(x, y,     (int)(w * groups[g].members[i]->bsm.state.hunger), h, ORANGE);
+                    DrawRectangle(x, y,      w, h, {40, 40, 40, 180});
+                    DrawRectangle(x, y,      (int)(w * groups[g].members[i]->bsm.state.hunger),    h, ORANGE);
                     DrawRectangleLines(x, y, w, h, GRAY);
 
-                    DrawRectangle(x, y + 7, w, h, {40, 40, 40, 180});
-                    DrawRectangle(x, y + 7, (int)(w * groups[g].members[i]->bsm.state.fear),   h, RED);
+                    DrawRectangle(x, y + 7,      w, h, {40, 40, 40, 180});
+                    DrawRectangle(x, y + 7,      (int)(w * groups[g].members[i]->bsm.state.fear),  h, RED);
                     DrawRectangleLines(x, y + 7, w, h, GRAY);
+
+                    DrawRectangle(x, y + 14,      w, h, {40, 40, 40, 180});
+                    DrawRectangle(x, y + 14,      (int)(w * groups[g].members[i]->bsm.state.tempStress), h, {80, 180, 255, 255});
+                    DrawRectangleLines(x, y + 14, w, h, GRAY);
                 }
 
                 char buf[64];

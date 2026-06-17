@@ -40,7 +40,7 @@ public:
 
 
         blobs_.clear();
-        maxConc_ = 1e-4f;
+        float strongestBlob = 1e-4f;
         for (int i = 0; i < blobCount; i++)
         {
             Blob b;
@@ -49,8 +49,9 @@ public:
             b.baseStrength = 0.45f + randf() * 0.9f;
             b.strength     = b.baseStrength;
             blobs_.push_back(b);
-            maxConc_ += b.baseStrength;
+            strongestBlob  = std::max(strongestBlob, b.baseStrength);
         }
+        maxConc_ = strongestBlob;   // realistic peak achievable at a single point
 
         particles_.assign((size_t)std::max(0, particleCount), Particle{});
         for (auto &p : particles_)
@@ -74,6 +75,27 @@ public:
     }
 
     float maxConcentration() const { return maxConc_; }
+
+    // Returns a unit vector toward the blob with the highest score (strength / dist²).
+    // Stable across frames — doesn't spin as the bacterium moves between blobs.
+    Vector3 bestFoodDirection(Vector3 pos) const
+    {
+        float   bestScore = -1.0f;
+        Vector3 bestDir   = {0.0f, 0.0f, 0.0f};
+        for (const auto &b : blobs_)
+        {
+            Vector3 toBlob = Vector3Subtract(b.center, pos);
+            float   dist   = Vector3Length(toBlob);
+            if (dist < 1e-4f) continue;
+            float score = b.strength / (1.0f + dist * dist);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestDir   = Vector3Scale(toBlob, 1.0f / dist);
+            }
+        }
+        return bestDir;
+    }
 
     Vector3 gradientAt(Vector3 pos) const
     {
