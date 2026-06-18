@@ -43,13 +43,24 @@ public:
     PetriDish(float r = 16.0f, float h = 5.0f, float floor = 0.0f)
         : radius(r), height(h), floorY(floor)
     {
-        heatSources.push_back({
-            {radius + 1.2f, floorY + height * 0.62f, 0.0f}, // outside heat lamp, on +X side
-            28.0f,
-            10.8f,
-            0.8f,
-            0.26f
-        });
+        // Three outside heat lamps in an equilateral triangle around the dish.
+        const float lampDist = radius + 1.2f;
+        const float lampY    = floorY + height * 0.62f;
+        const HeatSource lampTemplate = {
+            {}, 28.0f, 10.8f, 0.8f, 0.26f
+        };
+
+        for (int i = 0; i < 3; i++)
+        {
+            float angle = (float)i * (2.0f * PI / 3.0f);
+            HeatSource lamp = lampTemplate;
+            lamp.position = {
+                lampDist * std::cos(angle),
+                lampY,
+                lampDist * std::sin(angle)
+            };
+            heatSources.push_back(lamp);
+        }
     }
 
     float ceilY() const { return floorY + height; }
