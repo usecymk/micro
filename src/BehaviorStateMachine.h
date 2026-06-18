@@ -368,9 +368,7 @@ private:
         {
             behavior = Behavior::SEEK_FOOD;
         }
-        else if (state.tempStress > 0.25f ||
-                 (std::fabs(lastAmbientTemp - state.optimalTemp) > state.tempTolerance * 0.45f &&
-                  state.hunger <= 0.4f && state.fear <= 0.3f))
+        else if (state.tempStress > 0.5f)
         {
             behavior = Behavior::SEEK_TEMP;
         }
@@ -391,7 +389,7 @@ private:
 
     void doAvoidObstacle(float /*dt*/)
     {
-        swimMC.speed = 1.1f + obstacleUrgency * 0.7f;
+        swimMC.speed = 0.88f + obstacleUrgency * 0.56f;
         if (Vector3Length(obstacleAvoidDir) > 0.1f)
         {
             targetYaw   = atan2f(obstacleAvoidDir.x, obstacleAvoidDir.z);
@@ -403,7 +401,7 @@ private:
 
     void doWander(float dt)
     {
-        swimMC.speed = 0.7f;
+        swimMC.speed = 0.56f;
         wanderTimer -= dt;
         if (wanderTimer <= 0.0f)
         {
@@ -430,7 +428,7 @@ private:
         }
 
 
-        swimMC.speed = 0.9f + 0.4f * state.hunger;
+        swimMC.speed = 0.72f + 0.32f * state.hunger;
         targetYaw   = atan2f(foodDirection.x, foodDirection.z);
         targetPitch = Clamp(foodDirection.y, -1.0f, 1.0f);
         turnMC.pitch = targetPitch * 0.5f;
@@ -439,7 +437,7 @@ private:
 
     void doEscape(float /*dt*/)
     {
-        swimMC.speed = 1.5f;
+        swimMC.speed = 1.2f;
         if (Vector3Length(fleeDirection) > 0.1f) {
             turnMC.pitch = targetPitch * 0.6f;
             steerTowardYaw();
@@ -454,24 +452,12 @@ private:
             return;
         }
 
-        float deviation = lastAmbientTemp - state.optimalTemp;
-        float band = std::max(state.tempTolerance * 0.35f, 1.0f);
+        // too cold -> swim toward warmer (follow gradient); too hot -> swim away
+        Vector3 dir = (lastAmbientTemp < state.optimalTemp)
+            ? tempGradient
+            : Vector3Negate(tempGradient);
 
-        // Swim up the gradient when cold, down when hot; coast when near optimum.
-        Vector3 dir;
-        if (deviation < -band)
-            dir = tempGradient;
-        else if (deviation > band)
-            dir = Vector3Negate(tempGradient);
-        else
-        {
-            swimMC.speed = 0.55f;
-            doWander(0.0f);
-            return;
-        }
-
-        float urgency = Clamp(std::fabs(deviation) / std::max(state.tempTolerance, 1e-3f), 0.35f, 1.0f);
-        swimMC.speed = 0.75f + 0.35f * urgency + 0.25f * state.tempStress;
+        swimMC.speed = 0.68f;
         targetYaw    = atan2f(dir.x, dir.z);
         targetPitch  = Clamp(dir.y, -1.0f, 1.0f);
         turnMC.pitch = targetPitch * 0.5f;

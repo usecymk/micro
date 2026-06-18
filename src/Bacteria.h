@@ -279,7 +279,7 @@ private:
         // Speed-aware clamp: allowed stretch shrinks as swim speed rises so
         // tail length stays visually constant across WANDER/SEEK_FOOD/ESCAPE.
         // 1.5f = max speed (ESCAPE); tune the 0.13f slope if high-speed still looks long.
-        float speed01 = Clamp(bsm.swimMC.speed / 1.5f, 0.0f, 1.0f);
+        float speed01 = Clamp(bsm.swimMC.speed / 1.2f, 0.0f, 1.0f);
         float maxStretchFactor = 10.0f - speed01 * 0.50f;  // 1.25 idle (looser tail) → ~1.02 at full sprint
 
         for (auto &s : springs)
