@@ -11,10 +11,22 @@
 #include "BoidBehavior.h" 
 #include "BehaviorStateMachine.h"
 #include "ObstaclePerception.h"
+#include <rlgl.h>
 
 class Amoeba : public PhysicsBody
 {
 private:
+    struct InternalOrganelle
+    {
+        Vector3 localTargetOffset; // Ideal position relative to geometric center
+        Vector3 currentPosition;   // Actual simulated position in world space
+        float baseRadius;
+        float currentRadius;
+        Color color;
+        bool isContractile;        // Contractile vacuoles expand and snap shut to pump water
+        float pulsePhase;
+    };
+
     float baseRadius;
     float targetVolume;
     float phase;
@@ -36,6 +48,8 @@ private:
 
     float floorY = -5.0f; 
 
+    std::vector<InternalOrganelle> organelles;
+
     static unsigned char colorChannel(float value)
     {
         return (unsigned char)Clamp(value, 0.0f, 255.0f);
@@ -56,13 +70,13 @@ private:
     {
         if (myStateMachine.isHungry()) {
             // Hungry: amber/orange
-            return {255, 170, 35, 72};
+            return {255, 170, 35, 60};
         } else if (myStateMachine.isSeekingTemperature()) {
             // Temperature stress: violet
-            return {145, 105, 255, 64};
+            return {145, 105, 255, 55};
         } else {
             // Idle/wandering: calm aqua-green
-            return {35, 215, 170, 48};
+            return {35, 215, 170, 40};
         }
     }
 
@@ -72,12 +86,12 @@ private:
         float hunger01 = internalHunger / 100.0f;
         float tempStress01 = internalTempStress / 100.0f;
 
-        color = lerpColor(color, {255, 120, 45, 92}, hunger01 * 0.30f);
+        color = lerpColor(color, {255, 120, 45, 80}, hunger01 * 0.30f);
 
         if (myStateMachine.isHungry()) {
-            color = lerpColor(color, {255, 55, 24, 132}, hunger01 * 0.70f);
+            color = lerpColor(color, {255, 55, 24, 110}, hunger01 * 0.70f);
         } else if (myStateMachine.isSeekingTemperature()) {
-            color = lerpColor(color, {255, 135, 55, 118}, tempStress01 * 0.55f);
+            color = lerpColor(color, {255, 135, 55, 100}, tempStress01 * 0.55f);
         }
 
         return color;
@@ -91,7 +105,6 @@ public:
 
     std::vector<Vector3> pendingForces;
 
-    // A custom generator that PhysicsBody will call at the right time
     class AmoebaForceInjector : public ForceGenerator
     {
         Amoeba* amoeba;
@@ -102,24 +115,26 @@ public:
             auto& bodyNodes = body.getNodes();
             for (size_t i = 0; i < bodyNodes.size(); i++)
             {
-                // Inject the forces that actuate() calculated
                 bodyNodes[i].force = Vector3Add(bodyNodes[i].force, amoeba->pendingForces[i]);
             }
         }
     };
 
-    Amoeba(Vector3 center, float radius = 0.6667f, float stiffness = 12.0f, float damping = 1.8f)
+    Amoeba(Vector3 center, float radius = 1.25f, float stiffness = 5.0f, float damping = 2.2f)
     {
         baseRadius = radius;
         phase = 0.0f;
         heading = {1.0f, 0.0f, 0.0f}; 
         wanderTargetHeading = heading;
-        numMembraneNodes = 64;
         
+        // Increased from 64 to 128 for smoother topology and high-fidelity deformations
+        numMembraneNodes = 256; 
         searchRadius = 11.6667f; 
 
+        // Internal Nucleus Physics Node
         nodes.push_back(Node(center, 0.15f)); 
 
+        // Distribute membrane surface nodes using Fibonacci Sphere mapping
         for (int i = 0; i < numMembraneNodes; i++)
         {
             float t = (float)i / (numMembraneNodes - 1); 
@@ -131,16 +146,18 @@ public:
             float z = std::sin(theta) * radius_at_y;
 
             Vector3 offset = Vector3Scale({x, y, z}, radius);
-            nodes.push_back(Node(Vector3Add(center, offset), 0.07f)); 
+            nodes.push_back(Node(Vector3Add(center, offset), 0.04f)); 
         }
 
+        // Structural Core Springs (Nucleus to Membrane)
         for (int i = 1; i <= numMembraneNodes; i++)
         {
-            addSpring(0, i, stiffness * 0.6f, damping); 
+            addSpring(0, i, stiffness * 0.5f, damping); 
         }
 
+        // Surface Cross-Stitching Springs
         float expected_dist = std::sqrt(4.0f * PI * radius * radius / numMembraneNodes);
-        float threshold = expected_dist * 1.5f; 
+        float threshold = expected_dist * 1.6f; 
 
         for (int i = 1; i <= numMembraneNodes; i++)
         {
@@ -149,15 +166,36 @@ public:
                 float d = Vector3Distance(nodes[i].position, nodes[j].position);
                 if (d < threshold)
                 {
-                    addSpring(i, j, stiffness * 0.7f, damping);
+                    addSpring(i, j, stiffness * 0.75f, damping);
                 }
             }
         }
 
         targetVolume = (4.0f / 3.0f) * PI * std::pow(radius, 3);
-
         pendingForces.resize(nodes.size(), Vector3Zero());
         addForceGenerator(std::make_unique<AmoebaForceInjector>(this));
+
+        // Initialize Procedural Organelles
+        // 1. Large centralized Nucleus
+        organelles.push_back({ {0.0f, 0.05f, -0.02f}, center, radius * 0.28f, radius * 0.28f, {75, 45, 110, 180}, false, 0.0f });
+        
+        // 2. Water-regulating Contractile Vacuole
+        organelles.push_back({ {-0.15f, -0.05f, 0.12f}, center, radius * 0.18f, radius * 0.18f, {110, 190, 255, 160}, true, 0.0f });
+        
+        // 3. Smaller metabolic granules / food vacuoles scattered around the cytoplasm
+        for (int i = 0; i < 8; i++)
+        {
+            float rx = ((float)GetRandomValue(-100, 100) * 0.0025f) * radius;
+            float ry = ((float)GetRandomValue(-100, 100) * 0.0025f) * radius;
+            float rz = ((float)GetRandomValue(-100, 100) * 0.0025f) * radius;
+            float randSize = radius * (0.04f + (float)GetRandomValue(0, 4) * 0.015f);
+            
+            Color organelleColor = (GetRandomValue(0, 1) == 0) 
+                ? Color{130, 150, 70, 140}  // Food/Nutrient storage (greenish-brown)
+                : Color{175, 160, 120, 130}; // Fat droplets / general granules
+                
+            organelles.push_back({ {rx, ry, rz}, center, randSize, randSize, organelleColor, false, (float)GetRandomValue(0, 360) });
+        }
     }
 
     void setFloorY(float y) 
@@ -172,7 +210,6 @@ public:
     }
 
     Vector3 getHeading() const { return heading; }
-
     float getHunger() const { return internalHunger; }
     float getTemperatureStress() const { return internalTempStress; }
     float getHungerThreshold() const { return myStateMachine.getHungerThreshold(); }
@@ -205,7 +242,7 @@ public:
     }
 
     void actuate(float dt,
-                 const CocciCluster& cocci,
+                 const std::vector<std::unique_ptr<CocciCluster>>& cocciClusters, // Changed signature
                  const std::vector<BoidState>& flockStates,
                  float currentTemperature,
                  Vector3 temperatureGradient,
@@ -216,11 +253,7 @@ public:
         
         Vector3 myPos = nodes[0].position;
 
-
         internalHunger += dt * 4.0f; 
-        
-        Vector3 cocciPos = cocci.getCenterPosition();
-        float distToCocci = Vector3Distance(cocciPos, myPos);
         internalHunger = Clamp(internalHunger, 0.0f, 100.0f);
 
         internalFear = std::max(0.0f, internalFear - dt * 15.0f);
@@ -240,25 +273,35 @@ public:
 
         if (myStateMachine.isScared())
         {
-            speedMultiplier = 3.2f;
-            stretchFactor = 2.2f;
-            pulseSpeed = 5.0f;
+            speedMultiplier = 2.0f;
+            stretchFactor = 2.4f;
+            pulseSpeed = 4.8f;
         }
         else if (myStateMachine.isHungry())
         {
-            speedMultiplier = 1.1f;
-            stretchFactor = 1.10f;
-            pulseSpeed = 2.8f;
+            speedMultiplier = 1.0f;
+            stretchFactor = 1.35f;
+            pulseSpeed = 2.6f;
 
             bool preySelected = false;
             Vector3 targetFoodPos = Vector3Zero();
             float bestPreyCost = 99999.0f;
 
-            if (distToCocci < searchRadius && distToCocci > 0.033f)
+            // Loop through and evaluate all available Cocci clusters
+            for (const auto& cocci : cocciClusters)
             {
-                bestPreyCost = preySelectionCost(distToCocci, 1.0f, 0.0f);
-                targetFoodPos = cocciPos;
-                preySelected = true;
+                Vector3 cocciPos = cocci->getCenterPosition();
+                float distToCocci = Vector3Distance(cocciPos, myPos);
+                if (distToCocci < searchRadius && distToCocci > 0.033f)
+                {
+                    float cocciCost = preySelectionCost(distToCocci, 1.0f, 0.0f);
+                    if (cocciCost < bestPreyCost)
+                    {
+                        bestPreyCost = cocciCost;
+                        targetFoodPos = cocciPos;
+                        preySelected = true;
+                    }
+                }
             }
 
             for (const auto& boid : flockStates)
@@ -281,7 +324,6 @@ public:
             if (preySelected)
             {
                 Vector3 toPrey = Vector3Subtract(targetFoodPos, myPos);
-                // REMOVED: toPrey.y = 0.0f; <-- Let it swim up/down!
                 targetHeading = Vector3Normalize(toPrey);
             }
             else
@@ -298,7 +340,7 @@ public:
         }
         else if (myStateMachine.isSeekingTemperature())
         {
-            speedMultiplier = 1.45f;
+            speedMultiplier = 1.0f;
             stretchFactor = 1.05f;
             pulseSpeed = 2.0f;
 
@@ -311,14 +353,13 @@ public:
         }
         else 
         {
-            speedMultiplier = 0.5f;
+            speedMultiplier = 0.25f;
             stretchFactor = 0.7f;
             pulseSpeed = 1.1f;
 
             wanderTimer -= dt;
             if (wanderTimer <= 0.0f)
             {
-                // Generate a true 3D wander heading
                 Vector3 randDir = {
                     (float)GetRandomValue(-100, 100),
                     (float)GetRandomValue(-100, 100),
@@ -342,6 +383,7 @@ public:
             attention = AttentionMode::HUNGRY;
         applySelectiveAttention(obsParams, attention);
 
+        // Sense physical environment obstacles
         ObstacleSenseResult obsSense = senseObstacles(
             myPos, heading, obstacles, obsParams, 0.12f, attention);
         obstacleAvoidUrgency = obsSense.urgency;
@@ -391,126 +433,196 @@ public:
         geomCenter = Vector3Scale(geomCenter, 1.0f / (float)numMembraneNodes);
 
         float currentVolume = calculateCurrentVolume(geomCenter);
-        float pressureStiffness = 320.0f; 
+        float pressureStiffness = 380.0f; 
         float pressureDelta = targetVolume - currentVolume;
         float internalPressure = std::max(0.0f, pressureDelta * pressureStiffness);
 
-        Vector3 gravityCancellation = {0.0f, 0.0f, 0.0f}; 
-
         for (size_t i = 0; i < nodes.size(); i++)
         {
-            nodes[i].velocity = Vector3Scale(nodes[i].velocity, 0.95f);
+            nodes[i].velocity = Vector3Scale(nodes[i].velocity, 0.93f);
 
-            if (i > 0) // Apply pressure to membrane nodes
+            if (i > 0) 
             {
-                // Push outward from the GEOMETRIC center, not the volatile nucleus node
                 Vector3 outwardDir = Vector3Normalize(Vector3Subtract(nodes[i].position, geomCenter));
                 Vector3 pressureForce = Vector3Scale(outwardDir, internalPressure / numMembraneNodes);
                 pendingForces[i] = Vector3Add(pendingForces[i], pressureForce);
             }
         }
 
+        // ── Calibrated Cytoplasmic Streaming Engine ──────────────────────────
         for (int i = 1; i <= numMembraneNodes; i++)
         {
             Vector3 dirFromCenter = Vector3Normalize(Vector3Subtract(nodes[i].position, nodes[0].position));
             float alignment = Vector3DotProduct(dirFromCenter, heading);
 
-            if (alignment > 0.45f)
+            // 1. ACTIVE FRONT (Tuned from 72.0f -> 13.0f, and 32.0f -> 6.5f)
+            if (alignment > 0.35f) 
             {
                 if (pulse > 0.0f)
                 {
-                    float thrustMagnitude = pulse * 36.6f * speedMultiplier * std::pow(alignment, 2) * dt;
+                    float thrustMagnitude = pulse * 13.0f * speedMultiplier * std::pow(alignment, 2) * dt;
                     Vector3 pseudopodThrust = Vector3Scale(heading, thrustMagnitude);
                     pendingForces[i] = Vector3Add(pendingForces[i], pseudopodThrust);
                     
-                    float extensionMagnitude = pulse * 11.6f * stretchFactor * alignment * dt;
+                    float extensionMagnitude = pulse * 6.5f * stretchFactor * alignment * dt;
                     Vector3 pseudopodStretch = Vector3Scale(dirFromCenter, extensionMagnitude);
                     pendingForces[i] = Vector3Add(pendingForces[i], pseudopodStretch);
                 }
             }
-            else if (alignment < -0.1f)
+            // 2. LATERAL SQUEEZE (Tuned from 24.0f -> 4.5f)
+            else if (std::abs(alignment) <= 0.35f)
             {
-                float squeezeMagnitude = 15.0f * speedMultiplier * stretchFactor * std::abs(alignment) * dt;
+                float sideSqueeze = (pulse * 0.5f + 0.5f) * 4.5f * speedMultiplier * (0.35f - std::abs(alignment)) * dt;
+                Vector3 inwardSqueeze = Vector3Scale(dirFromCenter, -sideSqueeze);
+                pendingForces[i] = Vector3Add(pendingForces[i], inwardSqueeze);
+            }
+            // 3. UROPOD CONTRACTION (Tuned from 42.0f -> 8.0f)
+            else if (alignment < -0.2f)
+            {
+                float squeezeMagnitude = 8.0f * speedMultiplier * stretchFactor * std::abs(alignment) * dt;
                 Vector3 tailSqueeze = Vector3Scale(heading, squeezeMagnitude);
                 pendingForces[i] = Vector3Add(pendingForces[i], tailSqueeze);
             }
 
+            // Substrate frictional grounding physics
             if (nodes[i].position.y < floorY + 0.0667f)
             {
-                if (alignment > 0.5f && pulse > 0.2f)
+                if (alignment > 0.4f && pulse > 0.1f)
                 {
-                    nodes[i].velocity.x *= 0.01f;
-                    nodes[i].velocity.z *= 0.01f;
+                    nodes[i].velocity.x *= 0.005f;
+                    nodes[i].velocity.z *= 0.005f;
                 }
                 else 
                 {
-                    nodes[i].velocity.x *= 0.92f;
-                    nodes[i].velocity.z *= 0.92f;
+                    nodes[i].velocity.x *= 0.90f;
+                    nodes[i].velocity.z *= 0.90f;
                 }
             }
         }
 
-        Vector3 nucleusFollow = Vector3Scale(heading, 5.0f * speedMultiplier * dt);
-        nodes[0].velocity = Vector3Add(nodes[0].velocity, nucleusFollow);
+        // Nucleus node tracking pull scaled down proportionally (1.5f -> 0.32f)
+        Vector3 nucleusFollow = Vector3Scale(heading, 0.32f * speedMultiplier * dt);
+        nodes[0].velocity = Vector3Add(nodes[0].velocity, nucleusFollow / 5.0f);
+        
+        // Update Internal Procedural Organelles
+        for (auto& org : organelles)
+        {
+            Vector3 targetWorldPos = Vector3Add(geomCenter, org.localTargetOffset);
+            
+            if (org.isContractile)
+            {
+                org.pulsePhase += dt * 1.6f;
+                float wave = std::sin(org.pulsePhase);
+                if (wave < -0.85f) 
+                {
+                    org.currentRadius = org.baseRadius * 0.3f;
+                }
+                else 
+                {
+                    org.currentRadius = org.baseRadius * (1.0f + (wave + 1.0f) * 0.35f);
+                }
+            }
+
+            org.currentPosition = Vector3Lerp(org.currentPosition, targetWorldPos, dt * 4.5f);
+        }
+
+        float speed = Vector3Length(nodes[0].velocity);
+        if (speed > .05f)
+        {
+            nodes[0].velocity = Vector3Scale(Vector3Normalize(nodes[0].velocity), .05f);
+        }
     }
 
-    void draw(bool debugOverlay = false)
+    void draw(Shader membraneShader, Vector3 cameraPos, float time, bool debugOverlay = false)
     {
         if (nodes.empty()) return;
 
+        int numNodes = (int)nodes.size();
+
+        // 1. RENDER ORGANELLES (Unshaded, drawn before the membrane)
+        // for (const auto& org : organelles)
+        // {
+        //     DrawSphere(org.currentPosition, org.currentRadius, org.color);
+        //     DrawSphere(org.currentPosition, org.currentRadius * 0.4f, 
+        //                ColorAlpha(org.color, Clamp(org.color.a / 255.0f + 0.2f, 0.0f, 1.0f)));
+        // }
+
+        // 2. PREPARE THE SHADER
+        int viewPosLoc = GetShaderLocation(membraneShader, "viewPos");
+        int timeLoc = GetShaderLocation(membraneShader, "time");
+        
+        SetShaderValue(membraneShader, viewPosLoc, &cameraPos, SHADER_UNIFORM_VEC3);
+        SetShaderValue(membraneShader, timeLoc, &time, SHADER_UNIFORM_FLOAT);
+
         Color faceColor = getMembraneColor(); 
 
-        int numNodes = (int)nodes.size();
-        
-        bool connected[128][128];
-        int safeLimit = std::min(numNodes, 128);
-        
-        for (int i = 0; i < safeLimit; ++i)
-        {
-            for (int j = 0; j < safeLimit; ++j)
-            {
-                connected[i][j] = false;
-            }
+        // Calculate geometric center for smooth normal generation
+        Vector3 geomCenter = Vector3Zero();
+        for (int i = 1; i < numNodes; i++) {
+            geomCenter = Vector3Add(geomCenter, nodes[i].position);
         }
+        geomCenter = Vector3Scale(geomCenter, 1.0f / (numNodes - 1));
 
+        std::vector<std::vector<bool>> connected(numNodes, std::vector<bool>(numNodes, false));
         for (const auto& s : springs)
         {
             int u = s.nodeA - &nodes[0];
             int v = s.nodeB - &nodes[0];
-            
-            if (u >= 0 && u < safeLimit && v >= 0 && v < safeLimit)
-            {
+            if (u >= 0 && u < numNodes && v >= 0 && v < numNodes) {
                 connected[u][v] = true;
                 connected[v][u] = true;
             }
         }
 
-        for (int u = 1; u < safeLimit; u++)
+        // 3. DRAW MEMBRANE WITH CUSTOM RLGL BATCH
+        BeginBlendMode(BLEND_ALPHA); // Ensure proper transparency rendering
+        BeginShaderMode(membraneShader);
+
+        rlBegin(RL_TRIANGLES);
+        rlColor4ub(faceColor.r, faceColor.g, faceColor.b, faceColor.a);
+
+        for (int u = 1; u < numNodes; u++)
         {
-            for (int v = u + 1; v < safeLimit; v++)
+            for (int v = u + 1; v < numNodes; v++)
             {
                 if (!connected[u][v]) continue;
 
-                for (int w = v + 1; w < safeLimit; w++)
+                for (int w = v + 1; w < numNodes; w++)
                 {
                     if (connected[u][w] && connected[v][w])
                     {
-                        DrawTriangle3D(nodes[u].position, nodes[v].position, nodes[w].position, faceColor);
-                        DrawTriangle3D(nodes[u].position, nodes[w].position, nodes[v].position, faceColor);
+                        // Calculate smooth normals radiating from the geometric center
+                        Vector3 nU = Vector3Normalize(Vector3Subtract(nodes[u].position, geomCenter));
+                        Vector3 nV = Vector3Normalize(Vector3Subtract(nodes[v].position, geomCenter));
+                        Vector3 nW = Vector3Normalize(Vector3Subtract(nodes[w].position, geomCenter));
+
+                        // Explicitly bind the color right before generating the vertices
+                        rlColor4ub(faceColor.r, faceColor.g, faceColor.b, faceColor.a);
+
+                        // Pass 1: Outer Face
+                        rlNormal3f(nU.x, nU.y, nU.z); rlVertex3f(nodes[u].position.x, nodes[u].position.y, nodes[u].position.z);
+                        rlNormal3f(nV.x, nV.y, nV.z); rlVertex3f(nodes[v].position.x, nodes[v].position.y, nodes[v].position.z);
+                        rlNormal3f(nW.x, nW.y, nW.z); rlVertex3f(nodes[w].position.x, nodes[w].position.y, nodes[w].position.z);
+
+                        // Pass 2: Inner Face (Reversed winding order)
+                        rlNormal3f(nU.x, nU.y, nU.z); rlVertex3f(nodes[u].position.x, nodes[u].position.y, nodes[u].position.z);
+                        rlNormal3f(nW.x, nW.y, nW.z); rlVertex3f(nodes[w].position.x, nodes[w].position.y, nodes[w].position.z);
+                        rlNormal3f(nV.x, nV.y, nV.z); rlVertex3f(nodes[v].position.x, nodes[v].position.y, nodes[v].position.z);
                     }
                 }
             }
         }
+        
+        rlEnd();
+        EndShaderMode();
+        EndBlendMode();
 
+        // 4. DEBUG OVERLAY
         if (debugOverlay)
         {
             Vector3 com = nodes[0].position;
             DrawLine3D(com, Vector3Add(com, Vector3Scale(heading, 2.5f)), LIME);
             DrawSphere(Vector3Add(com, Vector3Scale(heading, 2.5f)), 0.12f, LIME);
-
-            Vector3 worldUp = {0.0f, 1.0f, 0.0f};
-            Vector3 localRight = Vector3Normalize(Vector3CrossProduct(heading, worldUp));
-            DrawLine3D(com, Vector3Add(com, Vector3Scale(localRight, 1.5f)), PURPLE);
         }
     }
 

@@ -22,6 +22,7 @@
 #include "src/BoidBehavior.h"
 #include "src/Obstacle.h"
 #include "src/ObstaclePerception.h"
+#include "src/PopulationManager.h"
 
 static constexpr int   BOID_MAX             = 32;
 static constexpr int   BOID_INIT            = 16;
@@ -119,8 +120,20 @@ int main()
     amoeba.setFloorY(dish.floorY);
     amoeba.addForceGenerator(std::make_unique<DragForce>(0.6f));
 
-    CocciCluster cocci({-3.0f, dish.floorY + 2.0f, 0.0f});
-    cocci.addForceGenerator(std::make_unique<DragForce>(0.4f));
+    //CocciCluster cocci({-3.0f, dish.floorY + 2.0f, 0.0f});
+    std::vector<std::unique_ptr<CocciCluster>> cocciClusters;
+    Vector3 cocciSpawnPositions[] = {
+        {-3.0f, dish.floorY + 2.0f,  0.0f},
+        { 5.0f, dish.floorY + 2.2f,  4.0f},
+        {-6.0f, dish.floorY + 1.8f, -5.0f}
+    };
+
+    for (const auto& pos : cocciSpawnPositions) {
+        auto cluster = std::make_unique<CocciCluster>(pos);
+        cluster->addForceGenerator(std::make_unique<DragForce>(0.4f));
+        cocciClusters.push_back(std::move(cluster));
+    }
+    //cocci.addForceGenerator(std::make_unique<DragForce>(0.4f));
 
     NutrientField nutrientField;
     nutrientField.init(dish.radius, dish.floorY, dish.ceilY(), 1400, 7);
@@ -161,6 +174,7 @@ int main()
     std::vector<BoidState> flockStates(TOTAL_BACTERIA);
     std::vector<float>     hitCooldown(TOTAL_BACTERIA,    0.0f);
     std::vector<float>     detachCooldown(TOTAL_BACTERIA, 0.0f);
+    PopulationManager popManager;
 
     BoidBehavior boidParams;
     boidParams.separationRadius = 0.18f;
@@ -229,6 +243,8 @@ int main()
         }
     };
 
+    Shader amoebaShader = LoadShader("src/amoeba.vs", "src/amoeba.fs");
+
     DisableCursor();
     SetTargetFPS(60);
 
@@ -238,9 +254,9 @@ int main()
         if (!fpvMode) UpdateCamera(&camera, CAMERA_FREE);
 
         Vector3 hunter = amoeba.getCenterPosition();
-        Vector3 prey   = cocci.getCenterPosition();
-        Vector3 dxCocci = Vector3Subtract(prey, hunter); dxCocci.y = 0.0f;
-        float distCocci = Vector3Length(dxCocci);
+        // Vector3 prey   = cocci.getCenterPosition();
+        // Vector3 dxCocci = Vector3Subtract(prey, hunter); dxCocci.y = 0.0f;
+        // float distCocci = Vector3Length(dxCocci);
 
         // ── input ─────────────────────────────────────────────────────────────
         if (IsKeyDown(KEY_T)) {
@@ -589,6 +605,33 @@ int main()
             allBoidStates.push_back(flockStates[idx]);
         }
 
+        float amoebaTemp = dish.temperatureAt(hunter);
+        Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
+        
+        // Pass the updated vector container to the amoeba logic engine
+        amoeba.actuate(dt, cocciClusters, allBoidStates, amoebaTemp, amoebaTempGradient, AMOEBA_TEMP_TARGET, obstacles);
+        amoeba.updatePhysicsImplicit(dt);
+        dish.applyBoundary(amoeba.getNodes());
+        resolveObstacleCollisions(obstacles, amoeba.getNodes(), AMOEBA_OBSTACLE_RADIUS);
+
+        // Process loop iterations cleanly for each tracked Cocci cluster instance
+        for (auto& cocci : cocciClusters)
+        {
+            cocci->actuate(dt, dish);
+            
+            // Check specific proximity thresholds to trigger amoeba feeding / cluster relocation response
+            float currentDist = Vector3Distance(cocci->getCenterPosition(), hunter);
+            if (currentDist < 0.667f) 
+            { 
+                amoeba.feed(100.0f); 
+                cocci->respawn(hunter, dish.radius * 0.85f, dish.floorY + 2.0f); 
+            }
+            
+            cocci->updatePhysicsImplicit(dt);
+            dish.applyBoundary(cocci->getNodes());
+            resolveObstacleCollisions(obstacles, cocci->getNodes(), 0.08f);
+        }
+
         // DEBUG: amoeba disabled
         // float amoebaTemp = dish.temperatureAt(hunter);
         // Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
@@ -619,38 +662,57 @@ int main()
             camera.fovy = 45.0f;
         }
 
+        popManager.update(bacteria, GetFrameTime());
+
         // ── draw ──────────────────────────────────────────────────────────────
         BeginDrawing();
-        ClearBackground((Color){5, 10, 20, 255});
+        ClearBackground((Color){5, 10, 20, 255}); // Keeps the micro-world aesthetic
+        
         BeginMode3D(camera);
 
-        dish.draw(AMOEBA_TEMP_TARGET);
-        for (const auto &obs : obstacles) obs.draw();
-        nutrientField.draw(camera);
-        // amoeba.draw();  cocci.draw();
-        for (int idx = 0; idx < TOTAL_BACTERIA; idx++)
-            bacteria[idx]->draw(showDebug);
-
-        // debug arrows for bacteria[0]
-        if (showDebug && bacteria[0]->bsm.state.alive)
-        {
-            Vector3 dbPos = bacteria[0]->getCenterOfMass();
-            Vector3 grad  = nutrientField.bestFoodDirection(dbPos);
-            float   gLen  = Vector3Length(grad);
-            if (gLen > 1e-5f) {
-                Vector3 gDir = Vector3Scale(grad, 1.0f / gLen);
-                DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), GREEN);
-                DrawSphere(Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), 0.03f, GREEN);
+            // Draw environmental assets
+            dish.draw(AMOEBA_TEMP_TARGET);
+            for (const auto &obs : obstacles) obs.draw();
+            nutrientField.draw(camera);
+            
+            // Cleanly render the shader-managed Amoeba within the open 3D context
+            float time = (float)GetTime();
+            amoeba.draw(amoebaShader, camera.position, time, false);
+            
+            
+            // Draw remaining biological entities inside 3D mode
+            for (const auto& cocci : cocciClusters) 
+            {
+                cocci->draw();
             }
-            DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(bacteria[0]->getHeading(), 0.4f)), WHITE);
-        }
 
-        dish.drawShell();
-        EndMode3D();
+            for (int idx = 0; idx < TOTAL_BACTERIA; idx++)
+                bacteria[idx]->draw(showDebug);
 
-        // ── HUD ───────────────────────────────────────────────────────────────
+            // Debug arrows for bacteria[0]
+            if (showDebug && bacteria[0]->bsm.state.alive)
+            {
+                Vector3 dbPos = bacteria[0]->getCenterOfMass();
+                Vector3 grad  = nutrientField.bestFoodDirection(dbPos);
+                float   gLen  = Vector3Length(grad);
+                if (gLen > 1e-5f) {
+                    Vector3 gDir = Vector3Scale(grad, 1.0f / gLen);
+                    DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), GREEN);
+                    DrawSphere(Vector3Add(dbPos, Vector3Scale(gDir, 0.6f)), 0.03f, GREEN);
+                }
+                DrawLine3D(dbPos, Vector3Add(dbPos, Vector3Scale(bacteria[0]->getHeading(), 0.4f)), WHITE);
+            }
+
+            dish.drawShell();
+            
+        EndMode3D(); // Cleanly close 3D mode once
+
+        // ── HUD (2D overlays drawn on top) ───────────────────────────────────
         float camTemp = dish.temperatureAt(camera.position);
         DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
+
+        // Restored Amoeba Status Panel overlay
+        drawAmoebaStatusPanel(amoeba, amoebaTemp, screenWidth);
 
         // bacteria[0] state panel — debug only
         if (showDebug)
@@ -758,6 +820,7 @@ int main()
         EndDrawing();
     }
 
+    UnloadShader(amoebaShader);
     CloseWindow();
     return 0;
 }

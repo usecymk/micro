@@ -159,6 +159,10 @@ public:
         initOrientation();
     }
 
+    Vector3 getPosition() const {
+        return nodes.empty() ? Vector3Zero() : nodes[0].position;
+    }
+
 private:
     float time = 0.0f;
     float drag = 0.985f;
@@ -183,6 +187,8 @@ private:
         }
         bsm.setHeading(heading, atan2f(heading.x, heading.z));
     }
+
+    
 
     void applyMotorControls()
     {
