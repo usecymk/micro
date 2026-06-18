@@ -269,6 +269,38 @@ private:
             n.velocity = Vector3Scale(n.velocity, drag);
             n.position  = Vector3Add(n.position, Vector3Scale(n.velocity, dt));
         }
+
+        // Speed-aware clamp: allowed stretch shrinks as swim speed rises so
+        // tail length stays visually constant across WANDER/SEEK_FOOD/ESCAPE.
+        // 1.5f = max speed (ESCAPE); tune the 0.13f slope if high-speed still looks long.
+        float speed01 = Clamp(bsm.swimMC.speed / 1.5f, 0.0f, 1.0f);
+        float maxStretchFactor = 15.0f - speed01 * 0.50f;  // 1.25 idle (looser tail) → ~1.02 at full sprint
+
+        for (auto &s : springs)
+        {
+            Vector3 d = Vector3Subtract(s.nodeB->position, s.nodeA->position);
+            float   L = Vector3Length(d);
+            float   maxLen = s.rest_length * maxStretchFactor;
+            if (L > maxLen && L > 1e-6f)
+            {
+                Vector3 dhat       = Vector3Scale(d, 1.0f / L);
+                float   excess     = L - maxLen;
+                Vector3 correction = Vector3Scale(dhat, excess * 0.5f);
+                s.nodeA->position  = Vector3Add(s.nodeA->position, correction);
+                s.nodeB->position  = Vector3Subtract(s.nodeB->position, correction);
+
+                // Cancel separating velocity so the spring doesn't immediately
+                // re-stretch past the clamp next frame (prevents per-frame jitter).
+                float relVel = Vector3DotProduct(
+                    Vector3Subtract(s.nodeB->velocity, s.nodeA->velocity), dhat);
+                if (relVel > 0.0f)
+                {
+                    Vector3 velCorrection  = Vector3Scale(dhat, relVel * 0.5f);
+                    s.nodeA->velocity      = Vector3Add(s.nodeA->velocity, velCorrection);
+                    s.nodeB->velocity      = Vector3Subtract(s.nodeB->velocity, velCorrection);
+                }
+            }
+        }
     }
 };
 
