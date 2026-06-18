@@ -15,6 +15,8 @@ struct BoidState
     Vector3 position = {0.0f, 0.0f, 0.0f};
     Vector3 velocity = {0.0f, 0.0f, 0.0f};
     bool    alive    = false;
+    int     groupId  = -1;   // -1 = unassigned
+    bool    detached = false; // true = critical; skips boid forces
 };
 
 //three-rule boid steering (separation, alignment, cohesion).
@@ -33,7 +35,7 @@ public:
     BoidBehavior(float sepR, float aliR, float cohR, float sepW, float aliW, float cohW, float maxF = 2.5f);
 
     //ret combined steering force for flock[selfIndex]
-    Vector3 steer(int selfIndex, const std::vector<BoidState> &flock) const;
+    Vector3 steer(int selfIndex, int selfGroupId, const std::vector<BoidState> &flock) const;
 };
 
 //ForceGenerator that applies boid steering to a body's front (body) nodes.

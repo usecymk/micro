@@ -53,7 +53,7 @@ struct InternalState
         if (!alive) {
             return;
         }
-        hunger += 0.035f * dt;
+        hunger += 0.015f * dt;
         hunger = Clamp(hunger, 0.0f, 1.0f);
         fear *= expf(-1.2f * dt);
 
