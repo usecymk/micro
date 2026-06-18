@@ -10,9 +10,17 @@
 struct SwimMC
 {
     float speed = 0.5f;
-    float getAmplitude() const { return 0.03f + speed * 0.08f; }
-    float getFrequency() const { return 1.5f  + speed * 3.0f;  }
-    float getThrust()    const { return speed * getAmplitude() * getFrequency() * 6.0f; }
+    float getAmplitude() const { 
+        return 0.03f + speed * 0.08f; 
+    }
+    float getFrequency() const { 
+        return 1.5f  + speed * 3.0f;  
+    }
+
+    static constexpr float THRUST_SCALE = 0.7f; 
+    float getThrust() const { 
+        return speed * getAmplitude() * getFrequency() * 6.0f; 
+    }
 };
 
 struct TurnMC
@@ -28,7 +36,12 @@ struct InternalState
     float hunger = 0.0f;
     float fear = 0.0f;
 
-    enum class CauseOfDeath { NONE, STARVATION, ATTACK };
+    // ── temperature tolerance ──────────────────────────────────────────
+    float optimalTemp   = 37.0f;
+    float tempTolerance = 12.0f;
+    float tempStress    = 0.0f;   // 0 = comfortable, 1 = lethal
+
+    enum class CauseOfDeath { NONE, STARVATION, ATTACK, TEMPERATURE };
     bool alive = true;
     CauseOfDeath causeOfDeath = CauseOfDeath::NONE;
 
@@ -54,37 +67,65 @@ struct InternalState
             alive = false;
             causeOfDeath = CauseOfDeath::STARVATION;
         }
+        if (tempStress >= 1.0f) {
+            alive = false;
+            causeOfDeath = CauseOfDeath::TEMPERATURE;
+        }
     }
 
-    void onEat() { 
-        hunger = 0.0f; 
+    // Call once per frame with ambient temp at the bacterium's position.
+    // Climbs while outside [optimalTemp ± tempTolerance], decays back down
+    // while comfortable.
+    void updateTemperature(float ambientTemp, float dt)
+    {
+        if (!alive) return;
+
+        float deviation = std::fabs(ambientTemp - optimalTemp) - tempTolerance;
+        if (deviation > 0.0f)
+        {
+            float severity = deviation / std::max(tempTolerance, 1e-3f);
+            tempStress = Clamp(tempStress + severity * 0.05f * dt, 0.0f, 1.0f);
+        }
+        else
+        {
+            tempStress = Clamp(tempStress - 0.10f * dt, 0.0f, 1.0f);
+        }
+    }
+
+    void onEat() {
+        hunger = 0.0f;
     }
     void feed(float amount) {
         hunger = Clamp(hunger - amount, 0.0f, 1.0f);
     }
-    void onPredatorNearby(float prox) { 
-        fear = Clamp(fear + prox * 0.6f, 0.0f, 1.0f); 
+    void onPredatorNearby(float prox) {
+        fear = Clamp(fear + prox * 0.6f, 0.0f, 1.0f);
     }
 
     void onAttackHit()
     {
-        if (hitWindowTimer <= 0.0f) { 
-            hitCount = 1; 
-            hitWindowTimer = 7.0f; 
+        if (hitWindowTimer <= 0.0f) {
+            hitCount = 1;
+            hitWindowTimer = 7.0f;
         }
         else {
             hitCount++;
         }
         onPredatorNearby(0.8f);
-        if (hitCount >= 3) { 
-            alive = false; 
-            causeOfDeath = CauseOfDeath::ATTACK; 
+        if (hitCount >= 3) {
+            alive = false;
+            causeOfDeath = CauseOfDeath::ATTACK;
         }
+    }
+
+    bool isNearDeath(float hungerThresh = 0.9f, float tempStressThresh = 0.85f) const
+    {
+        return alive && (hunger >= hungerThresh || tempStress >= tempStressThresh);
     }
 };
 
 
-enum class Behavior { AVOID_OBSTACLE, ESCAPE, SEEK_FOOD, WANDER };
+enum class Behavior { AVOID_OBSTACLE, WANDER, SEEK_FOOD, ESCAPE, SEEK_TEMP };
 
 class BehaviorStateMachine {
 private:
@@ -182,6 +223,7 @@ public:
 
     //called by Bacteria each frame after deriving heading from node positions:
     void setHeading(Vector3 h, float yaw) { bHeading = h; currentYaw = yaw; }
+    void setHeadingAndTarget(Vector3 h, float yaw) { bHeading = h; currentYaw = yaw; targetYaw = yaw; }
 
     // Chemotaxis input: `dir` points up the nutrient concentration gradient,
     // `localConcentration` is how rich the water is right here (normalized 0..1).
@@ -192,6 +234,18 @@ public:
             foodDirection = Vector3Normalize(dir);
         else
             foodDirection = {0.0f, 0.0f, 0.0f};
+    }
+
+    // gradientTowardWarmer: unit vector pointing toward increasing temperature.
+    // currentAmbientTemp / optimalTemp let doSeekTemp() decide whether to swim
+    // up or down the gradient (too cold -> follow it, too hot -> reverse it).
+    void setTemperatureSensing(Vector3 gradientTowardWarmer, float currentAmbientTemp)
+    {
+        lastAmbientTemp = currentAmbientTemp;
+        if (Vector3Length(gradientTowardWarmer) > 1e-5f)
+            tempGradient = Vector3Normalize(gradientTowardWarmer);
+        else
+            tempGradient = {0.0f, 0.0f, 0.0f};
     }
 
     void setObstacleSense(Vector3 avoidDir, float urgency)
@@ -206,20 +260,34 @@ public:
     Vector3 getAvoidDirection() const { return obstacleAvoidDir; }
     bool isAvoidingObstacle() const { return behavior == Behavior::AVOID_OBSTACLE; }
 
-    void update(float dt)
+    void update(float dt, bool nearWall = false)
     {
         state.update(dt);
         if (wallHitCooldown > 0.0f) wallHitCooldown -= dt;
+
+        if (nearWall)
+        {
+            // obstacle check still runs near the wall — hitting an obstacle while
+            // hugging the wall shouldn't be ignored
+            if (obstacleUrgency > 0.12f)
+            {
+                if (behavior != Behavior::AVOID_OBSTACLE)
+                    savedBehavior = behavior;
+                behavior = Behavior::AVOID_OBSTACLE;
+                doAvoidObstacle(dt);
+                return;
+            }
+            // otherwise wall-avoidance wins — targetYaw already set by onWallHit()
+            steerTowardYaw();
+            return;
+        }
+
         updateBehavior(dt);
     }
 
     void onWallHit(Vector3 awayDir)
     {
-        if (wallHitCooldown <= 0.0f)
-        {
-            targetYaw       = atan2f(awayDir.x, awayDir.z);
-            wallHitCooldown = 1.5f;
-        }
+        targetYaw = atan2f(awayDir.x, awayDir.z);   // no cooldown gate — keep correcting every frame near wall
     }
 
     void onPredatorNearby(Vector3 awayDir, float proximity)
@@ -267,6 +335,8 @@ private:
     Vector3 obstacleAvoidDir  = {0.0f, 0.0f, 0.0f};
     float   obstacleUrgency   = 0.0f;
     Behavior savedBehavior    = Behavior::WANDER;
+    Vector3 tempGradient      = {0.0f, 0.0f, 0.0f};   // points toward warmer; sign flipped if too hot
+    float   lastAmbientTemp   = 20.0f;
 
     void updateBehavior(float dt)
     {
@@ -282,27 +352,38 @@ private:
         if (behavior == Behavior::AVOID_OBSTACLE)
             behavior = savedBehavior;
 
-        if (state.fear > 0.35f)
+        bool criticalHunger = state.hunger     >= 0.70f;
+        bool criticalTemp   = state.tempStress >= 0.85f;
+
+        if (criticalHunger || criticalTemp)
+        {
+            // both override fear; hunger always takes priority over temp
+            behavior = criticalHunger ? Behavior::SEEK_FOOD : Behavior::SEEK_TEMP;
+        }
+        else if (state.fear > 0.35f)
+        {
             behavior = Behavior::ESCAPE;
-        else if (state.hunger > 0.7f)
+        }
+        else if (state.hunger > 0.5f)
+        {
             behavior = Behavior::SEEK_FOOD;
+        }
+        else if (state.tempStress > 0.5f)
+        {
+            behavior = Behavior::SEEK_TEMP;
+        }
         else
+        {
             behavior = Behavior::WANDER;
+        }
 
         switch (behavior)
         {
-            case Behavior::AVOID_OBSTACLE:
-                doAvoidObstacle(dt);
-                break;
-            case Behavior::WANDER:
-                doWander(dt);
-                break;
-            case Behavior::SEEK_FOOD:
-                doSeekFood(dt);
-                break;
-            case Behavior::ESCAPE:
-                doEscape(dt);
-                break;
+            case Behavior::AVOID_OBSTACLE: doAvoidObstacle(dt); break;
+            case Behavior::WANDER:         doWander(dt);        break;
+            case Behavior::SEEK_FOOD:      doSeekFood(dt);      break;
+            case Behavior::ESCAPE:         doEscape(dt);        break;
+            case Behavior::SEEK_TEMP:      doSeekTemp(dt);      break;
         }
     }
 
@@ -361,6 +442,26 @@ private:
             turnMC.pitch = targetPitch * 0.6f;
             steerTowardYaw();
         }
+    }
+
+    void doSeekTemp(float /*dt*/)
+    {
+        if (Vector3Length(tempGradient) < 0.1f)
+        {
+            doWander(0.0f);
+            return;
+        }
+
+        // too cold -> swim toward warmer (follow gradient); too hot -> swim away
+        Vector3 dir = (lastAmbientTemp < state.optimalTemp)
+            ? tempGradient
+            : Vector3Negate(tempGradient);
+
+        swimMC.speed = 0.85f;
+        targetYaw    = atan2f(dir.x, dir.z);
+        targetPitch  = Clamp(dir.y, -1.0f, 1.0f);
+        turnMC.pitch = targetPitch * 0.5f;
+        steerTowardYaw();
     }
 
     void steerTowardYaw()

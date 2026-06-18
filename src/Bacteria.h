@@ -51,19 +51,29 @@ public:
         for (int i = 0; i < FLAG_NODES; i++)
         {
             float t = (float)i / (float)(FLAG_NODES - 1);
-            float fk_i = k * (0.25f - t * 0.15f);
-            float fd_i = d * (0.25f - t * 0.18f);
+            float fk_i = k * (0.75f - t * 0.15f);
+            float fd_i = d * (0.65f - t * 0.10f);
             addSpring(BODY_NODES - 1 + i, BODY_NODES + i, fk_i, fd_i);
         }
 
         initOrientation();
     }
 
-    void update(float dt)
+    void update(float dt, float ambientTemp, Vector3 tempGradient, bool nearWall)
     {
         accumulateExternalForces(dt);
         updateHeading();
-        bsm.update(dt);
+        bsm.state.updateTemperature(ambientTemp, dt);
+        bsm.setTemperatureSensing(tempGradient, ambientTemp);
+        nearWall_ = nearWall;
+        if (nearWall)
+        {
+            Vector3 com = getCenterOfMass();
+            float r = sqrtf(com.x * com.x + com.z * com.z);
+            wallAwayDir = (r > 1e-4f) ? Vector3{-com.x / r, 0.0f, -com.z / r} : Vector3{0.0f, 0.0f, -1.0f};
+            bsm.onWallHit(wallAwayDir);
+        }
+        bsm.update(dt, nearWall);
         applyMotorControls();
         animateFlagellum(dt);
         updatePhysicsWithDrag(dt);
@@ -142,8 +152,8 @@ public:
         addSpring(0, 3, k * 0.03f, d);
         for (int i = 0; i < FLAG_NODES; i++) {
             float t = (float)i / (float)(FLAG_NODES - 1);
-            float fk_i = k * (0.25f - t * 0.15f);
-            float fd_i = d * (0.25f - t * 0.18f);
+            float fk_i = k * (0.75f - t * 0.15f);
+            float fd_i = d * (0.65f - t * 0.10f);
             addSpring(BODY_NODES - 1 + i, BODY_NODES + i, fk_i, fd_i);
         }
         initOrientation();
@@ -152,7 +162,9 @@ public:
 private:
     float time = 0.0f;
     float drag = 0.985f;
-    Vector3 heading = {0.0f, 0.0f, -1.0f};
+    Vector3 heading     = {0.0f, 0.0f, -1.0f};
+    Vector3 wallAwayDir = {0.0f, 0.0f, 0.0f};
+    bool    nearWall_   = false;
 
     void initOrientation()
     {
@@ -175,7 +187,14 @@ private:
     void applyMotorControls()
     {
         Vector3 thrustDir = heading;
-        if (bsm.behavior == Behavior::AVOID_OBSTACLE && Vector3Length(bsm.getAvoidDirection()) > 0.1f)
+        if (nearWall_ && Vector3Length(wallAwayDir) > 0.1f)
+        {
+            // strongly redirect thrust away from wall — overrides all other steering
+            Vector3 blended = Vector3Add(heading, Vector3Scale(wallAwayDir, 4.0f));
+            if (Vector3Length(blended) > 1e-4f)
+                thrustDir = Vector3Normalize(blended);
+        }
+        else if (bsm.behavior == Behavior::AVOID_OBSTACLE && Vector3Length(bsm.getAvoidDirection()) > 0.1f)
         {
             Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getAvoidDirection(), 2.5f));
             if (Vector3Length(blended) > 1e-4f)
@@ -196,9 +215,9 @@ private:
         Vector3 worldUp = {0.0f, 1.0f, 0.0f};
         Vector3 localRight = Vector3Normalize(Vector3CrossProduct(heading, worldUp));
         float net = bsm.turnMC.right - bsm.turnMC.left;
-        nodes[0].force = Vector3Add(nodes[0].force, Vector3Scale(localRight, net * 0.2f));
-        nodes[1].force = Vector3Add(nodes[1].force, Vector3Scale(localRight, net * 0.06f));
-        nodes[0].force.y += bsm.turnMC.pitch * 0.18f;
+        nodes[0].force = Vector3Add(nodes[0].force, Vector3Scale(localRight, net * 1.4f));
+        nodes[1].force = Vector3Add(nodes[1].force, Vector3Scale(localRight, net * 0.5f));
+        nodes[0].force.y += bsm.turnMC.pitch * 1.5f;
     }
 
     void animateFlagellum(float dt)

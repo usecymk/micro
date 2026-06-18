@@ -15,7 +15,7 @@ static Vector3 clampLength(Vector3 v, float maxLen)
 BoidBehavior::BoidBehavior(float sepR,float aliR,float cohR,float sepW,float aliW,float cohW,float maxF)
     :separationRadius(sepR), alignmentRadius(aliR), cohesionRadius(cohR), separationWeight(sepW), alignmentWeight(aliW), cohesionWeight(cohW), maxForce(maxF) {}
 
-Vector3 BoidBehavior::steer(int selfIndex, const std::vector<BoidState> &flock) const
+Vector3 BoidBehavior::steer(int selfIndex, int selfGroupId, const std::vector<BoidState> &flock) const
 {
     const BoidState &self = flock[selfIndex];
 
@@ -26,23 +26,25 @@ Vector3 BoidBehavior::steer(int selfIndex, const std::vector<BoidState> &flock) 
 
     for (int i = 0; i < (int)flock.size(); i++)
     {
-        if (i == selfIndex || !flock[i].alive) {
-            continue;
-        }
+        if (i == selfIndex || !flock[i].alive || flock[i].detached) continue;
 
         const BoidState &other = flock[i];
         Vector3 diff = Vector3Subtract(self.position, other.position);
         float dist   = Vector3Length(diff);
 
-        if (dist < separationRadius && dist > 1e-6f) { //separation == weighted by inverse distance
-            sep = Vector3Add(sep, Vector3Scale(Vector3Normalize(diff), 1.0f / dist));
+        if (dist < separationRadius && dist > 1e-6f) {
+            float strength = (separationRadius - dist) / separationRadius;
+            sep = Vector3Add(sep, Vector3Scale(Vector3Normalize(diff), strength));
             sepCount++;
         }
-        if (dist < alignmentRadius) { //align == match neighbors' velocity
+
+        bool sameGroup = (selfGroupId != -1) && (other.groupId == selfGroupId);
+
+        if (sameGroup && dist < alignmentRadius) {
             ali = Vector3Add(ali, other.velocity);
             aliCount++;
         }
-        if (dist < cohesionRadius) { //cohesion == move toward neighbors' centroid
+        if (sameGroup && dist < cohesionRadius) {
             coh = Vector3Add(coh, other.position);
             cohCount++;
         }
@@ -81,11 +83,11 @@ BoidForceGenerator::BoidForceGenerator(const std::vector<BoidState> *flockPtr, i
 
 void BoidForceGenerator::apply(PhysicsBody &body, float /*dt*/)
 {
-    if (!flock || !behavior || (int)flock->size() <= selfIndex) {
-        return;
-    }
+    if (!flock || !behavior || (int)flock->size() <= selfIndex) return;
+    if ((*flock)[selfIndex].detached) return;
 
-    Vector3 force = behavior->steer(selfIndex, *flock);
+    int selfGroupId = (*flock)[selfIndex].groupId;
+    Vector3 force = behavior->steer(selfIndex, selfGroupId, *flock);
 
     force.y *= 0.8f;
 
