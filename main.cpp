@@ -632,7 +632,7 @@ int main()
             bacteria[idx]->draw(showDebug);
 
         // debug arrows for bacteria[0]
-        if (bacteria[0]->bsm.state.alive)
+        if (showDebug && bacteria[0]->bsm.state.alive)
         {
             Vector3 dbPos = bacteria[0]->getCenterOfMass();
             Vector3 grad  = nutrientField.bestFoodDirection(dbPos);
@@ -652,51 +652,54 @@ int main()
         float camTemp = dish.temperatureAt(camera.position);
         DrawText(TextFormat("Camera: %.1f C", camTemp), 30, 30, 20, RAYWHITE);
 
-        // bacteria[0] state panel
-        if (bacteria[0]->bsm.state.alive)
+        // bacteria[0] state panel — debug only
+        if (showDebug)
         {
-            Bacteria   &db = *bacteria[0];
-            const auto &st = db.bsm.state;
+            if (bacteria[0]->bsm.state.alive)
+            {
+                Bacteria   &db = *bacteria[0];
+                const auto &st = db.bsm.state;
 
-            const char *behaviorName = "?";
-            switch (db.bsm.behavior) {
-                case Behavior::WANDER:         behaviorName = "WANDER";         break;
-                case Behavior::SEEK_FOOD:      behaviorName = "SEEK_FOOD";      break;
-                case Behavior::ESCAPE:         behaviorName = "ESCAPE";         break;
-                case Behavior::SEEK_TEMP:      behaviorName = "SEEK_TEMP";      break;
-                case Behavior::AVOID_OBSTACLE: behaviorName = "AVOID_OBSTACLE"; break;
+                const char *behaviorName = "?";
+                switch (db.bsm.behavior) {
+                    case Behavior::WANDER:         behaviorName = "WANDER";         break;
+                    case Behavior::SEEK_FOOD:      behaviorName = "SEEK_FOOD";      break;
+                    case Behavior::ESCAPE:         behaviorName = "ESCAPE";         break;
+                    case Behavior::SEEK_TEMP:      behaviorName = "SEEK_TEMP";      break;
+                    case Behavior::AVOID_OBSTACLE: behaviorName = "AVOID_OBSTACLE"; break;
+                }
+
+                int px = 10, py = 55;
+                DrawRectangle(px - 4, py - 4, 300, 145, {0, 0, 0, 160});
+                DrawText(TextFormat("Behavior: %s",  behaviorName),     px, py,       14, YELLOW);
+                DrawText(TextFormat("Hunger:   %.2f", st.hunger),       px, py + 18,  14, ORANGE);
+                DrawText(TextFormat("Fear:     %.2f", st.fear),         px, py + 34,  14, RED);
+                DrawText(TextFormat("TmpStress:%.2f", st.tempStress),   px, py + 50,  14, {80,180,255,255});
+
+                float bTemp = dish.temperatureAt(db.getCenterOfMass());
+                DrawText(TextFormat("Amb temp: %.1f C", bTemp),         px, py + 66,  14, {200,200,200,255});
+                DrawText(TextFormat("nearWall: %s",
+                    [&]{ float r2 = db.getCenterOfMass().x * db.getCenterOfMass().x +
+                                    db.getCenterOfMass().z * db.getCenterOfMass().z;
+                         return sqrtf(r2) > dish.radius * 0.82f ? "YES" : "no"; }()),
+                    px, py + 82, 14, {200,200,200,255});
+
+                Vector3 dbPos     = db.getCenterOfMass();
+                float   maxConc   = nutrientField.maxConcentration();
+                float   localConc = nutrientField.concentrationAt(dbPos) / maxConc;
+                Vector3 foodDir   = nutrientField.bestFoodDirection(dbPos);
+                float   foodLen   = Vector3Length(foodDir);
+                DrawText(TextFormat("localConc:%.3f", localConc), px, py + 98, 14, {180,255,180,255});
+                if (foodLen > 1e-5f)
+                    DrawText(TextFormat("foodDir: (%.2f, %.2f, %.2f)", foodDir.x, foodDir.y, foodDir.z),
+                             px, py + 114, 14, {180,255,180,255});
+                else
+                    DrawText("foodDir: zero (will wander)", px, py + 114, 14, RED);
             }
-
-            int px = 10, py = 55;
-            DrawRectangle(px - 4, py - 4, 300, 145, {0, 0, 0, 160});
-            DrawText(TextFormat("Behavior: %s",  behaviorName),     px, py,       14, YELLOW);
-            DrawText(TextFormat("Hunger:   %.2f", st.hunger),       px, py + 18,  14, ORANGE);
-            DrawText(TextFormat("Fear:     %.2f", st.fear),         px, py + 34,  14, RED);
-            DrawText(TextFormat("TmpStress:%.2f", st.tempStress),   px, py + 50,  14, {80,180,255,255});
-
-            float bTemp = dish.temperatureAt(db.getCenterOfMass());
-            DrawText(TextFormat("Amb temp: %.1f C", bTemp),         px, py + 66,  14, {200,200,200,255});
-            DrawText(TextFormat("nearWall: %s",
-                [&]{ float r2 = db.getCenterOfMass().x * db.getCenterOfMass().x +
-                                db.getCenterOfMass().z * db.getCenterOfMass().z;
-                     return sqrtf(r2) > dish.radius * 0.82f ? "YES" : "no"; }()),
-                px, py + 82, 14, {200,200,200,255});
-
-            Vector3 dbPos     = db.getCenterOfMass();
-            float   maxConc   = nutrientField.maxConcentration();
-            float   localConc = nutrientField.concentrationAt(dbPos) / maxConc;
-            Vector3 foodDir   = nutrientField.bestFoodDirection(dbPos);
-            float   foodLen   = Vector3Length(foodDir);
-            DrawText(TextFormat("localConc:%.3f", localConc), px, py + 98, 14, {180,255,180,255});
-            if (foodLen > 1e-5f)
-                DrawText(TextFormat("foodDir: (%.2f, %.2f, %.2f)", foodDir.x, foodDir.y, foodDir.z),
-                         px, py + 114, 14, {180,255,180,255});
             else
-                DrawText("foodDir: zero (will wander)", px, py + 114, 14, RED);
-        }
-        else
-        {
-            DrawText("Bacterium[0] DEAD", 10, 55, 14, RED);
+            {
+                DrawText("Bacterium[0] DEAD", 10, 55, 14, RED);
+            }
         }
 
         if (showDebug)
