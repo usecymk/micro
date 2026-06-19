@@ -38,7 +38,7 @@ struct InternalState
 
     // ── temperature tolerance ──────────────────────────────────────────
     float optimalTemp   = 37.0f;
-    float tempTolerance = 12.0f;
+    float tempTolerance = 4.0f;
     float tempStress    = 0.0f;   // 0 = comfortable, 1 = lethal
 
     enum class CauseOfDeath { NONE, STARVATION, ATTACK, TEMPERATURE };
@@ -73,23 +73,23 @@ struct InternalState
         }
     }
 
-    // Call once per frame with ambient temp at the bacterium's position.
-    // Climbs while outside [optimalTemp ± tempTolerance], decays back down
-    // while comfortable.
     void updateTemperature(float ambientTemp, float dt)
     {
         if (!alive) return;
 
-        float deviation = std::fabs(ambientTemp - optimalTemp) - tempTolerance;
-        if (deviation > 0.0f)
+        float absDev = std::fabs(ambientTemp - optimalTemp);
+        const float seekBand = tempTolerance * 0.25f;
+        float targetStress = 0.0f;
+        if (absDev > seekBand)
         {
-            float severity = deviation / std::max(tempTolerance, 1e-3f);
-            tempStress = Clamp(tempStress + severity * 0.05f * dt, 0.0f, 1.0f);
+            float range = std::max(tempTolerance - seekBand, 1e-3f);
+            targetStress = Clamp((absDev - seekBand) / range, 0.0f, 1.0f);
         }
+
+        if (targetStress > tempStress)
+            tempStress = std::min(targetStress, tempStress + 2.0f * dt);
         else
-        {
-            tempStress = Clamp(tempStress - 0.10f * dt, 0.0f, 1.0f);
-        }
+            tempStress = std::max(targetStress, tempStress - 0.10f * dt);
     }
 
     void onEat() {
@@ -368,7 +368,7 @@ private:
         {
             behavior = Behavior::SEEK_FOOD;
         }
-        else if (state.tempStress > 0.25f || (std::fabs(lastAmbientTemp - state.optimalTemp) > state.tempTolerance * 0.45f && state.hunger <= 0.4f && state.fear <= 0.3f))
+        else if (state.tempStress > 0.25f || (std::fabs(lastAmbientTemp - state.optimalTemp) > state.tempTolerance * 0.25f && state.hunger <= 0.4f && state.fear <= 0.3f))
         {
             behavior = Behavior::SEEK_TEMP;
         }
@@ -437,7 +437,7 @@ private:
 
     void doEscape(float /*dt*/)
     {
-        swimMC.speed = 1.2f;
+        swimMC.speed = 0.88f;
         if (Vector3Length(fleeDirection) > 0.1f) {
             turnMC.pitch = targetPitch * 0.6f;
             steerTowardYaw();
@@ -454,13 +454,7 @@ private:
 
         float deviation = lastAmbientTemp - state.optimalTemp;
         float band = std::max(state.tempTolerance * 0.35f, 1.0f);
-        // too cold -> swim toward warmer (follow gradient); too hot -> swim away
-        // Vector3 dir = (lastAmbientTemp < state.optimalTemp)
-        //     ? tempGradient
-        //     : Vector3Negate(tempGradient);
 
-        
-        // Swim up the gradient when cold, down when hot; coast when near optimum.
         Vector3 dir;
         if (deviation < -band)
             dir = tempGradient;
