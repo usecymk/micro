@@ -311,7 +311,7 @@ private:
                        (randf() - 0.5f) * 0.4f,
                        (randf() - 0.5f) * 0.4f };
         p.conc     = concentrationAt(p.position) / maxConc_;
-        p.size     = 0.06f + randf() * 0.10f;
+        p.size     = 0.03f + randf() * 0.05f;
         p.age      = 0.0f;
         p.lifespan = 2.5f + randf() * 4.0f;
     }
