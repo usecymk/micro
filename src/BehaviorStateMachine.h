@@ -455,9 +455,9 @@ private:
         float deviation = lastAmbientTemp - state.optimalTemp;
         float band = std::max(state.tempTolerance * 0.35f, 1.0f);
         // too cold -> swim toward warmer (follow gradient); too hot -> swim away
-        Vector3 dir = (lastAmbientTemp < state.optimalTemp)
-            ? tempGradient
-            : Vector3Negate(tempGradient);
+        // Vector3 dir = (lastAmbientTemp < state.optimalTemp)
+        //     ? tempGradient
+        //     : Vector3Negate(tempGradient);
 
         
         // Swim up the gradient when cold, down when hot; coast when near optimum.
