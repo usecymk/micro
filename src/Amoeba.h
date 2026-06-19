@@ -257,6 +257,20 @@ public:
         internalHunger += dt * 4.0f; 
         internalHunger = Clamp(internalHunger, 0.0f, 100.0f);
 
+        if (internalHunger >= 95.0f) 
+        {
+            starvationTimer += dt;
+        } else {
+            starvationTimer = std::max(0.0f, starvationTimer - dt * 2.0f);
+        }
+
+        if (starvationTimer > 30.0f) 
+        {
+            isDead = true;
+        }
+        
+        if (isDead) return;
+
         internalFear = std::max(0.0f, internalFear - dt * 15.0f);
 
         float targetTempStress = Clamp(std::abs(currentTemperature - targetTemperature) * 12.0f, 0.0f, 100.0f);
@@ -559,7 +573,7 @@ public:
 
     void draw(Shader membraneShader, Vector3 cameraPos, float time, bool debugOverlay = false)
     {
-        if (nodes.empty()) return;
+        if (nodes.empty() || isDead) return;
 
         int numNodes = (int)nodes.size();
 
@@ -651,6 +665,10 @@ public:
     }
 
 private:
+
+    float starvationTimer = 0.0f;
+    bool isDead = false;
+
     float preySelectionCost(float distance, float sizeCost, float escapeCost) const
     {
         return distance * (1.0f + preySizeCostWeight * sizeCost + preyEscapeCostWeight * escapeCost);
