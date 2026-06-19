@@ -99,7 +99,7 @@ private:
 
 public:
     // --- BEHAVIOR TOGGLES ---
-    float searchRadius = 11.6667f;
+    float searchRadius = 0.0f;
     float preySizeCostWeight = 0.35f;
     float preyEscapeCostWeight = 0.45f;
 
@@ -122,14 +122,14 @@ public:
 
     Amoeba(Vector3 center, float radius = 1.25f, float stiffness = 5.0f, float damping = 2.2f)
     {
+        //searchRadius = givenRad;
         baseRadius = radius;
         phase = 0.0f;
         heading = {1.0f, 0.0f, 0.0f}; 
         wanderTargetHeading = heading;
         
-        // Increased from 64 to 128 for smoother topology and high-fidelity deformations
         numMembraneNodes = 256; 
-        searchRadius = 11.6667f; 
+        searchRadius = 10.0f; 
 
         // Internal Nucleus Physics Node
         nodes.push_back(Node(center, 0.15f)); 
@@ -264,7 +264,7 @@ public:
             starvationTimer = std::max(0.0f, starvationTimer - dt * 2.0f);
         }
 
-        if (starvationTimer > 30.0f) 
+        if (starvationTimer > 10.0f) 
         {
             isDead = true;
         }
