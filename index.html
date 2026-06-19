@@ -16,8 +16,10 @@
     bacteria_hud.png
     temperatures.png
     video/
+      b_experiment.mp4
       amoeba-hunting.mp4
       bacteria-behavior.mp4
+      amoeba_survival.mp4
   src/                          <- source code + compiled executable (no .o/.obj files)
 
   Drop exported videos into assets/video/, report PDF as assets/report.pdf,
@@ -382,6 +384,10 @@
   <div class="wrap">
     <h2>Video Demos</h2>
     <div class="grid">
+      <figure>
+        <video controls preload="metadata" src="assets/video/b_experiment.mp4"></video>
+        <figcaption>Experiment B: predator-induced colony scatter &mdash; six perimeter-spaced bacterial colonies are hunted by a hungry amoeba; predator hits trigger dispersal and detached bacteria pair to form satellite groups, producing repeated scatter-and-reorganize cycles over the run.</figcaption>
+      </figure>
       <figure>
         <video controls preload="metadata" src="assets/video/amoeba-hunting.mp4"></video>
         <figcaption>Amoeba hunting &mdash; the predator&rsquo;s Hungry/Seeking Prey state pulls it toward bacteria, then Seeking Temperature pulls it back toward 40&deg;C once it has fed.</figcaption>
