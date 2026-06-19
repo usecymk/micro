@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Micro-Life 3D — CS 275 Final Project</title>
+<!--
+  FILE LAYOUT THIS PAGE EXPECTS (relative to this index.html):
+
+  index.html
+  assets/
+    report.pdf                  <- export of the conference paper / final report
+    ameoba_seek_temp.png
+    amoeba_hungry.png
+    amoeba_wander.png
+    bacteria_hud.png
+    temperatures.png
+    video/
+      amoeba-hunting.mp4
+      bacteria-behavior.mp4
+  src/                          <- source code + compiled executable (no .o/.obj files)
+
+  Drop exported videos into assets/video/, report PDF as assets/report.pdf,
+  and source tree + built executable in a top-level src/ folder.
+-->
+<style>
+  :root{
+    --bg: #0a1420;
+    --bg-raised: #0f1d2e;
+    --line: #1d3349;
+    --text: #e8eef4;
+    --muted: #8ea3b8;
+    --teal: #2dd4bf;
+    --orange: #fb923c;
+    --green: #4ade80;
+    --purple: #a78bfa;
+    --red: #f87171;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body{
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+
+  a { color: var(--teal); }
+
+  .wrap{
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- Hero ---------- */
+  header.hero{
+    border-bottom: 4px solid var(--teal);
+    background:
+      radial-gradient(900px 420px at 85% -10%, rgba(45,212,191,0.10), transparent 60%),
+      var(--bg-raised);
+    padding: 72px 0 48px;
+  }
+
+  .eyebrow{
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    font-size: .8rem;
+    font-weight: 600;
+    margin: 0 0 14px;
+  }
+
+  h1{
+    font-size: clamp(2.4rem, 5vw, 3.6rem);
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle{
+    color: var(--muted);
+    font-size: 1.25rem;
+    margin: 0 0 22px;
+  }
+
+  .authors{
+    font-size: 1rem;
+    margin: 0 0 30px;
+  }
+
+  .authors span{ color: var(--muted); }
+
+  .cta-row{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  .btn{
+    display: inline-block;
+    padding: 12px 22px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: .95rem;
+    border: 1px solid transparent;
+  }
+
+  .btn-primary{
+    background: var(--teal);
+    color: #06201c;
+  }
+
+  .btn-secondary{
+    background: transparent;
+    color: var(--text);
+    border-color: var(--line);
+  }
+
+  .btn-secondary:hover{ border-color: var(--teal); color: var(--teal); }
+
+  /* ---------- Sections ---------- */
+  section{
+    padding: 56px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  section:last-of-type{ border-bottom: none; }
+
+  h2{
+    font-size: 1.5rem;
+    margin: 0 0 20px;
+    letter-spacing: -0.01em;
+  }
+
+  #abstract p{
+    color: #cdd9e3;
+    font-size: 1.05rem;
+    max-width: 72ch;
+  }
+
+  /* ---------- Pipeline / overview ---------- */
+  .pipeline{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+
+  .pipeline li{
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--teal);
+    border-radius: 6px;
+    padding: 16px 14px;
+    font-size: .92rem;
+  }
+
+  .pipeline li:nth-child(1){ border-top-color: var(--orange); }
+  .pipeline li:nth-child(2){ border-top-color: var(--purple); }
+  .pipeline li:nth-child(3){ border-top-color: var(--teal); }
+  .pipeline li:nth-child(4){ border-top-color: var(--red); }
+  .pipeline li:nth-child(5){ border-top-color: var(--green); }
+
+  .pipeline .num{
+    display: block;
+    color: var(--muted);
+    font-size: .78rem;
+    margin-bottom: 6px;
+  }
+
+  /* ---------- Team ---------- */
+  .team{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  .team .card{
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px;
+  }
+
+  .team .card h3{
+    margin: 0 0 6px;
+    font-size: 1rem;
+  }
+
+  .team .card p{
+    margin: 0;
+    color: var(--muted);
+    font-size: .88rem;
+  }
+
+  .team .card:nth-child(1) h3{ color: var(--orange); }
+  .team .card:nth-child(2) h3{ color: var(--green); }
+  .team .card:nth-child(3) h3{ color: var(--purple); }
+  .team .card:nth-child(4) h3{ color: var(--red); }
+
+  /* ---------- Gallery ---------- */
+  .grid{
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+
+  figure{
+    margin: 0;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  figure img, figure video{
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #000;
+  }
+
+  figcaption{
+    padding: 12px 16px;
+    color: var(--muted);
+    font-size: .88rem;
+  }
+
+  .grid .wide{ grid-column: 1 / -1; }
+
+  /* ---------- Resources ---------- */
+  #resources ul{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+  }
+
+  #resources li{
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  #resources .label{ color: var(--muted); font-size: .85rem; }
+
+  /* ---------- Footer ---------- */
+  footer{
+    padding: 32px 0 56px;
+    color: var(--muted);
+    font-size: .85rem;
+  }
+
+  @media (max-width: 760px){
+    .pipeline{ grid-template-columns: repeat(2, 1fr); }
+    .team{ grid-template-columns: repeat(2, 1fr); }
+    .grid{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">CS 275 · Artificial Life · Spring 2026</p>
+    <h1>Micro-Life 3D</h1>
+    <p class="subtitle">An Autonomous Flagellated Ecosystem</p>
+    <p class="authors">
+      Amanda An <span>·</span> Andrew Douglas <span>·</span> Jalal Ikram <span>·</span> Thien Le
+      <br><span>University of California, Los Angeles</span>
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="assets/report.pdf">Read the Report (PDF)</a>
+      <a class="btn btn-secondary" href="src/">Browse Source Code</a>
+      <a class="btn btn-secondary" href="#videos">Watch Demos</a>
+    </div>
+  </div>
+</header>
+
+<section id="abstract">
+  <div class="wrap">
+    <h2>Abstract</h2>
+    <p>
+      Micro-Life 3D is a real-time artificial life simulation of a microscopic aquatic
+      ecosystem rendered in 3D using C++ and Raylib. Six bacterial colonies, an amoeba
+      predator, nutrient fields, thermal gradients, and physical obstacles inhabit a
+      cylindrical petri dish, interacting through physics-based soft-body locomotion,
+      hierarchical behavioral state machines, and Boids-style collective dynamics.
+      Rather than scripting behaviors directly, complex ecological phenomena, such as
+      foraging aggregation, predator movement, colony fission and fusion, and satellite
+      group formation, emerge from simple per-agent rules operating on local sensory
+      information. Each bacterium is a spring-mass soft body propelled by a sinusoidal
+      flagellar traveling wave; its internal state (hunger, fear, temperature stress)
+      drives a priority-ordered behavioral hierarchy, while group membership is managed
+      by a dynamic flocking system with state-dependent detachment, satiation-aware
+      tethering, group merging, and reproduction. The simulation runs at 60 FPS with up
+      to 192 simultaneously active bacteria.
+    </p>
+  </div>
+</section>
+
+<section id="overview">
+  <div class="wrap">
+    <h2>System Architecture</h2>
+    <ol class="pipeline">
+      <li><span class="num">01</span>Rendering &amp; Scene</li>
+      <li><span class="num">02</span>Soft-Body Physics</li>
+      <li><span class="num">03</span>Flagellar Locomotion</li>
+      <li><span class="num">04</span>Perception &amp; Behavior</li>
+      <li><span class="num">05</span>Ecosystem &amp; Integration</li>
+    </ol>
+  </div>
+</section>
+
+<section id="team">
+  <div class="wrap">
+    <h2>Team</h2>
+    <div class="team">
+      <div class="card">
+        <h3>Amanda An</h3>
+        <p>Flagella locomotion, Boid behaviors, fear/hunger state modeling</p>
+      </div>
+      <div class="card">
+        <h3>Andrew Douglas</h3>
+        <p>Amoeba &amp; cocci implementation, predator&ndash;prey interaction</p>
+      </div>
+      <div class="card">
+        <h3>Jalal Ikram</h3>
+        <p>Physics engine, fluid mechanics, volume approximation, nutrient fields</p>
+      </div>
+      <div class="card">
+        <h3>Thien Le</h3>
+        <p>Temperature field simulation, predator AI &amp; intention system</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gallery">
+  <div class="wrap">
+    <h2>Gameplay &amp; Debug Captures</h2>
+    <div class="grid">
+      <figure>
+        <img src="assets/amoeba_wander.png" alt="Amoeba in the Idle/Wandering state">
+        <figcaption>Amoeba in Idle/Wandering &mdash; hunger and temperature stress are both low, so the FSM has no driving goal.</figcaption>
+      </figure>
+      <figure>
+        <img src="assets/amoeba_hungry.png" alt="Amoeba in the Hungry/Seeking Prey state">
+        <figcaption>Amoeba in Hungry/Seeking Prey &mdash; it pursues bacteria even at a sub-optimal temperature, accepting rising temperature stress.</figcaption>
+      </figure>
+      <figure>
+        <img src="assets/ameoba_seek_temp.png" alt="Amoeba in the Seeking Temperature state">
+        <figcaption>Amoeba in Seeking Temperature &mdash; hunger satisfied, the amoeba steers back toward its 40&deg;C optimum.</figcaption>
+      </figure>
+      <figure>
+        <img src="assets/bacteria_hud.png" alt="Per-bacterium debug HUD">
+        <figcaption>Per-bacterium debug overlay &mdash; live behavior state, hunger/fear/temperature-stress, and the food-direction vector driving chemotaxis.</figcaption>
+      </figure>
+      <figure class="wide">
+        <img src="assets/temperatures.png" alt="Top-down view of the petri dish temperature and nutrient fields">
+        <figcaption>Top-down view of the dish&rsquo;s temperature field &mdash; blue marks the bacterial 37&deg;C optimum, warm/orange marks the amoeba&rsquo;s 40&deg;C optimum, and nutrient density peaks in the warmer region.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="videos">
+  <div class="wrap">
+    <h2>Video Demos</h2>
+    <div class="grid">
+      <figure>
+        <video controls preload="metadata" src="assets/video/amoeba-hunting.mp4"></video>
+        <figcaption>Amoeba hunting &mdash; the predator&rsquo;s Hungry/Seeking Prey state pulls it toward bacteria, then Seeking Temperature pulls it back toward 40&deg;C once it has fed.</figcaption>
+      </figure>
+      <figure>
+        <video controls preload="metadata" src="assets/video/bacteria-behavior.mp4"></video>
+        <figcaption>Bacteria temperature-seeking vs. foraging &mdash; a bacterium idles at its 37&deg;C optimum, swims into the warmer nutrient-rich zone once hungry, then retreats once satiated.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="resources">
+  <div class="wrap">
+    <h2>Project Resources</h2>
+    <ul>
+      <li>
+        <span>Project report</span>
+        <a href="assets/report.pdf">assets/report.pdf</a>
+      </li>
+      <li>
+        <span>Source code &amp; executable</span>
+        <a href="src/">src/</a>
+      </li>
+      <li>
+        <span>Video demos</span>
+        <a href="assets/video/">assets/video/</a>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Micro-Life 3D &middot; CS 275 Artificial Life &middot; UCLA &middot; Spring 2026</p>
+  </div>
+</footer>
+
+</body>
+</html>
