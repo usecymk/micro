@@ -153,7 +153,7 @@ micro3d/
 ├── src/                  # Simulation source (headers + one .cpp)
 ├── include/              # raylib headers + vendored Eigen
 ├── libraries/            # Prebuilt raylib dylib (macOS)
-├── assets/               # Screenshots, videos, sample experiment CSVs
+├── assets/               # Screenshots, videos, final report PDF, sample experiment CSVs
 └── figures/              # Generated figure output (if present)
 ```
 
@@ -241,11 +241,12 @@ The conference paper describes four experiments. Only **Experiment B** has a ded
 
 | Path | Contents |
 |------|----------|
+| `assets/report.pdf` | Final conference paper (*Micro-Life 3D: An Autonomous Ecosystem*) |
 | `assets/*.png` | HUD screenshots, temperature visualization, behavior stills |
 | `assets/video/` | Recorded demo clips (`amoeba-hunting.mp4`, `bacteria-behavior.mp4`, etc.) |
 | `assets/experiment_results/` | Sample CSV output from a prior experiment run |
 
-Open `index.html` in a browser to view the project page. Place `assets/report.pdf` there for the linked final report (full paper: *Micro-Life 3D: An Autonomous Ecosystem*).
+Open `index.html` in a browser to view the project page, screenshots, videos, and the linked final report at `assets/report.pdf`.
 
 ---
 

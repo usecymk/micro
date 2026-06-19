@@ -4,27 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Micro-Life 3D — CS 275 Final Project</title>
-<!--
-  FILE LAYOUT THIS PAGE EXPECTS (relative to this index.html):
 
-  index.html
-  assets/
-    report.pdf                  <- export of the conference paper / final report
-    ameoba_seek_temp.png
-    amoeba_hungry.png
-    amoeba_wander.png
-    bacteria_hud.png
-    temperatures.png
-    video/
-      b_experiment.mp4
-      amoeba-hunting.mp4
-      bacteria-behavior.mp4
-      amoeba_survival.mp4
-  src/                          <- source code + compiled executable (no .o/.obj files)
-
-  Drop exported videos into assets/video/, report PDF as assets/report.pdf,
-  and source tree + built executable in a top-level src/ folder.
--->
 <style>
   :root{
     --bg: #0a1420;
@@ -384,6 +364,10 @@
   <div class="wrap">
     <h2>Video Demos</h2>
     <div class="grid">
+      <figure>
+        <video controls preload="metadata" src="assets/video/boid-congregation-spiral.mp4"></video>
+        <figcaption>Experiment A: colony merge dynamics &mdash; six closely spaced bacterial colonies merge into a single supercolony, cohere around the richest nutrient patch, and collectively deplete it.</figcaption>
+      </figure>
       <figure>
         <video controls preload="metadata" src="assets/video/b_experiment.mp4"></video>
         <figcaption>Experiment B: predator-induced colony scatter &mdash; six perimeter-spaced bacterial colonies are hunted by a hungry amoeba; predator hits trigger dispersal and detached bacteria pair to form satellite groups, producing repeated scatter-and-reorganize cycles over the run.</figcaption>
