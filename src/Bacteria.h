@@ -208,7 +208,7 @@ private:
         }
         else if (bsm.behavior == Behavior::ESCAPE && Vector3Length(bsm.getFleeDirection()) > 0.1f)
         {
-            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 2.0f));
+            Vector3 blended = Vector3Add(heading, Vector3Scale(bsm.getFleeDirection(), 1.5f));
             if (Vector3Length(blended) > 1e-4f)
                 thrustDir = Vector3Normalize(blended);
         }

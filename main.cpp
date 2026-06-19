@@ -29,12 +29,15 @@ static constexpr int   BOID_INIT            = 16;
 static constexpr int   NUM_GROUPS           = 6;
 static constexpr int   TOTAL_BACTERIA       = NUM_GROUPS * BOID_MAX;
 static constexpr float DISPERSE_DUR         = 5.0f;
-static constexpr float AMOEBA_TEMP_TARGET   = 40.0f;
-static constexpr float BACTERIA_HIT_RADIUS  = 0.75f;
+static constexpr float AMOEBA_TEMP_TARGET       = 40.0f;
+static constexpr float AMOEBA_TEMP_COMFORT_BAND = 1.25f;
+static constexpr float BACTERIA_OPTIMAL_TEMP    = 37.0f;
+static constexpr float BACTERIA_HIT_RADIUS  = 0.90f;
+static constexpr float PREDATOR_FLEE_RADIUS = 6.5f;
 static constexpr float BACTERIA_NUTRITION   = 45.0f;
-static constexpr float NUTRIENT_FEED_THRESHOLD = 0.18f;
-static constexpr float NUTRIENT_BITE           = 0.9f;
-static constexpr float NUTRIENT_FEED_RATE      = 0.8f;
+static constexpr float NUTRIENT_FEED_THRESHOLD = 0.12f;
+static constexpr float NUTRIENT_BITE           = 0.018f;
+static constexpr float NUTRIENT_FEED_RATE      = 0.315f;
 static constexpr float BACTERIA_OBSTACLE_RADIUS = 0.06f;
 static constexpr float AMOEBA_OBSTACLE_RADIUS   = 0.12f;
 static constexpr float JOIN_RADIUS  = 1.5f;   // detached bacterium joins nearby group
@@ -136,7 +139,7 @@ int main()
     //cocci.addForceGenerator(std::make_unique<DragForce>(0.4f));
 
     NutrientField nutrientField;
-    nutrientField.init(dish.radius, dish.floorY, dish.ceilY(), 1400, 7);
+    nutrientField.initAtIsotherm(dish, AMOEBA_TEMP_TARGET, 1100, 2);
 
     std::vector<Obstacle> obstacles = {
         Obstacle::makeSphere({ 3.5f, dish.floorY + 2.2f,  2.0f}, 0.85f),
@@ -493,12 +496,23 @@ int main()
 
                 if (localConc > NUTRIENT_FEED_THRESHOLD) {
                     float eaten = nutrientField.feedAt(sensePos, NUTRIENT_BITE * dt);
-                    if (eaten > 0.0f)
-                        bacteria[idx]->bsm.state.feed(localConc * NUTRIENT_FEED_RATE * dt);
+                    if (eaten > 0.0f) {
+                        float satiation = (eaten / maxConc) * NUTRIENT_FEED_RATE * dt;
+                        bacteria[idx]->bsm.state.feed(satiation);
+                    }
                 }
             }
 
             Vector3 com         = bacteria[idx]->getCenterOfMass();
+            Vector3 awayFromHunter = Vector3Subtract(com, hunter);
+            float   predatorDist   = Vector3Length(awayFromHunter);
+            if (predatorDist < PREDATOR_FLEE_RADIUS && predatorDist > 1e-4f)
+            {
+                float proximity = 1.0f - Clamp(predatorDist / PREDATOR_FLEE_RADIUS, 0.0f, 1.0f);
+                bacteria[idx]->bsm.onPredatorNearby(
+                    Vector3Scale(awayFromHunter, 1.0f / predatorDist), proximity);
+            }
+
             float   ambientTemp = dish.temperatureAt(com);
             Vector3 tempGrad    = dish.temperatureGradientAt(com);
             float   rDist       = sqrtf(com.x * com.x + com.z * com.z);
@@ -540,21 +554,6 @@ int main()
                     for (int n = 0; n < Bacteria::BODY_NODES; n++)
                         ns[n].velocity = Vector3Add(ns[n].velocity, Vector3Scale(leashDir, strength));
                 }
-            }
-
-            // predator hit
-            float predatorDist = Vector3Distance(com, hunter);
-            if (hitCooldown[idx] <= 0.0f && predatorDist < BACTERIA_HIT_RADIUS)
-            {
-                bacteria[idx]->bsm.state.onAttackHit();
-                flockStates[idx].alive = bacteria[idx]->bsm.state.alive;
-                if (!bacteria[idx]->bsm.state.alive) amoeba.feed(BACTERIA_NUTRITION);
-                hitCooldown[idx] = 1.5f;
-
-                // detach hit bacterium; pause reproduction for its group
-                flockStates[idx].detached = true;
-                detachCooldown[idx] = std::max(detachCooldown[idx], DISPERSE_DUR);
-                if (gid >= 0) disperseTimers[gid] = DISPERSE_DUR;
             }
         }
 
@@ -608,11 +607,37 @@ int main()
         float amoebaTemp = dish.temperatureAt(hunter);
         Vector3 amoebaTempGradient = dish.temperatureGradientAt(hunter);
         
-        // Pass the updated vector container to the amoeba logic engine
-        amoeba.actuate(dt, cocciClusters, allBoidStates, amoebaTemp, amoebaTempGradient, AMOEBA_TEMP_TARGET, obstacles);
+        amoeba.actuate(dt, cocciClusters, allBoidStates, amoebaTemp, amoebaTempGradient,
+                       AMOEBA_TEMP_TARGET, AMOEBA_TEMP_COMFORT_BAND, obstacles);
         amoeba.updatePhysicsImplicit(dt);
         dish.applyBoundary(amoeba.getNodes());
         resolveObstacleCollisions(obstacles, amoeba.getNodes(), AMOEBA_OBSTACLE_RADIUS);
+
+        {
+            Vector3 hunterAfter = amoeba.getCenterPosition();
+            for (int idx = 0; idx < TOTAL_BACTERIA; idx++)
+            {
+                if (hitCooldown[idx] > 0.0f) continue;
+                if (!bacteria[idx]->bsm.state.alive) continue;
+
+                Vector3 com = bacteria[idx]->getCenterOfMass();
+                Vector3 away = Vector3Subtract(com, hunterAfter);
+                float   dist = Vector3Length(away);
+                if (dist >= BACTERIA_HIT_RADIUS) continue;
+
+                if (dist > 1e-4f)
+                    bacteria[idx]->bsm.onPredatorNearby(Vector3Scale(away, 1.0f / dist), 1.0f);
+                bacteria[idx]->bsm.state.onAttackHit();
+                flockStates[idx].alive = bacteria[idx]->bsm.state.alive;
+                if (!bacteria[idx]->bsm.state.alive) amoeba.feed(BACTERIA_NUTRITION);
+                hitCooldown[idx] = 1.5f;
+
+                int gid = flockStates[idx].groupId;
+                flockStates[idx].detached = true;
+                detachCooldown[idx] = std::max(detachCooldown[idx], DISPERSE_DUR);
+                if (gid >= 0) disperseTimers[gid] = DISPERSE_DUR;
+            }
+        }
 
         // Process loop iterations cleanly for each tracked Cocci cluster instance
         for (auto& cocci : cocciClusters)
@@ -671,9 +696,15 @@ int main()
         BeginMode3D(camera);
 
             // Draw environmental assets
-            dish.draw(AMOEBA_TEMP_TARGET);
+            dish.draw();
             for (const auto &obs : obstacles) obs.draw();
             nutrientField.draw(camera);
+
+            if (showDebug)
+            {
+                dish.drawFloorIsotherm(AMOEBA_TEMP_TARGET, {255, 150, 55, 190});
+                dish.drawFloorIsotherm(BACTERIA_OPTIMAL_TEMP, {80, 200, 255, 190});
+            }
             
             // Cleanly render the shader-managed Amoeba within the open 3D context
             float time = (float)GetTime();
@@ -717,6 +748,12 @@ int main()
         // bacteria[0] state panel — debug only
         if (showDebug)
         {
+            DrawText("Temp zones (mid-liquid):", 10, screenHeight - 72, 14, RAYWHITE);
+            DrawText(TextFormat("  orange = %.0f C (amoeba)", AMOEBA_TEMP_TARGET),
+                     10, screenHeight - 56, 14, {255, 150, 55, 255});
+            DrawText(TextFormat("  blue   = %.0f C (bacteria)", BACTERIA_OPTIMAL_TEMP),
+                     10, screenHeight - 40, 14, {80, 200, 255, 255});
+
             if (bacteria[0]->bsm.state.alive)
             {
                 Bacteria   &db = *bacteria[0];

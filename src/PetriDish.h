@@ -43,21 +43,19 @@ public:
     PetriDish(float r = 16.0f, float h = 5.0f, float floor = 0.0f)
         : radius(r), height(h), floorY(floor)
     {
-        // Three outside heat lamps in an equilateral triangle around the dish.
-        const float lampDist = radius + 1.2f;
+        const float baseDist = radius + 1.5f;
         const float lampY    = floorY + height * 0.62f;
-        const HeatSource lampTemplate = {
-            {}, 28.0f, 10.8f, 0.8f, 0.26f
-        };
+        const float lampAngles[3] = { 0.10f, 2.35f, 4.05f };
+        const float lampDists[3]  = { baseDist + 0.7f, baseDist - 0.5f, baseDist + 0.3f };
+        const float lampYOff[3]   = { 0.0f, 0.18f, -0.12f };
 
         for (int i = 0; i < 3; i++)
         {
-            float angle = (float)i * (2.0f * PI / 3.0f);
-            HeatSource lamp = lampTemplate;
+            HeatSource lamp = { {}, 17.0f, 11.5f, 0.8f, 0.26f };
             lamp.position = {
-                lampDist * std::cos(angle),
-                lampY,
-                lampDist * std::sin(angle)
+                lampDists[i] * std::cos(lampAngles[i]),
+                lampY + lampYOff[i],
+                lampDists[i] * std::sin(lampAngles[i])
             };
             heatSources.push_back(lamp);
         }
@@ -95,15 +93,40 @@ public:
         return gradient;
     }
 
-    void draw(float targetTemperature = 40.0f) const
+    void drawFloorIsotherm(float targetTemperature,
+                           Color color,
+                           float tolerance = 0.35f,
+                           float sampleStep = 0.65f) const
+    {
+        const float y = floorY + height * 0.5f;
+        const float r2Max = radius * radius;
+        const int halfSteps = (int)std::ceil(radius / sampleStep);
+
+        for (int ix = -halfSteps; ix <= halfSteps; ix++)
+        {
+            for (int iz = -halfSteps; iz <= halfSteps; iz++)
+            {
+                float x = ix * sampleStep;
+                float z = iz * sampleStep;
+                if (x * x + z * z > r2Max)
+                    continue;
+
+                float localTemp = temperatureAt({x, y, z});
+                if (std::fabs(localTemp - targetTemperature) > tolerance)
+                    continue;
+
+                DrawSphere({x, y, z}, 0.055f, color);
+            }
+        }
+    }
+
+    void draw(float targetTemperature = -1.0f) const
     {
         Vector3 base = {0.0f, floorY, 0.0f};
 
-        // floor disk + rim
         DrawCylinder(base, radius, radius, 0.08f, sides, floorColor);
         DrawCylinderWires(base, radius, radius, 0.08f, sides, wireColor);
 
-        // floor grid lines clipped to the dish circle
         float step = (radius * 2.0f) / gridLines;
         float y = floorY + 0.05f;
         for (int i = 0; i <= gridLines; i++)
@@ -114,7 +137,7 @@ public:
             DrawLine3D({-halfLen, y, t}, { halfLen, y, t}, gridColor);
         }
 
-        // Dotted 3D isothermal shell where this heat source reaches targetTemperature.
+        if (targetTemperature > baseTemperature)
         for (const auto &source : heatSources)
         {
             float ratio = (targetTemperature - baseTemperature) / std::max(source.peakTemperature, 1e-4f);
@@ -145,7 +168,6 @@ public:
             }
         }
 
-        // outside heat lamp markers
         for (const auto &source : heatSources)
         {
             Vector3 lamp = source.position;
@@ -194,9 +216,6 @@ public:
         DrawCylinderWires(base, radius, radius, height, sides, wireColor);
     }
 
-    // restitution: 0 = fully inelastic, 1 = perfect elastic bounce.
-    // `bodyRadius` keeps the contact point slightly above the floor so
-    // capsule-rendered bodies don't visibly clip through it.
     void applyBoundary(Node &n, float restitution = 0.4f, float bodyRadius = 0.18f) const
     {
         // floor

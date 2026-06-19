@@ -9,6 +9,8 @@
 #include <raymath.h>
 #include <rlgl.h>
 
+#include "PetriDish.h"
+
 class NutrientField
 {
 public:
@@ -30,7 +32,6 @@ public:
         float   lifespan;
     };
 
-    // ---- lifecycle ----
     void init(float dishRadius, float floorY, float ceilY,
               int particleCount = 1400, int blobCount = 7)
     {
@@ -38,9 +39,7 @@ public:
         floorY_ = floorY;
         ceilY_  = ceilY;
 
-
         blobs_.clear();
-        float strongestBlob = 1e-4f;
         for (int i = 0; i < blobCount; i++)
         {
             Blob b;
@@ -49,16 +48,48 @@ public:
             b.baseStrength = 0.45f + randf() * 0.9f;
             b.strength     = b.baseStrength;
             blobs_.push_back(b);
-            strongestBlob  = std::max(strongestBlob, b.baseStrength);
         }
-        maxConc_ = strongestBlob;   // realistic peak achievable at a single point
+        recomputeMaxConcentration();
 
-        particles_.assign((size_t)std::max(0, particleCount), Particle{});
-        for (auto &p : particles_)
+        initParticles(particleCount);
+    }
+
+    void initAtIsotherm(const PetriDish &dish, float targetTemperature,
+                        int particleCount = 1100, int blobsPerZone = 2)
+    {
+        radius_ = dish.radius;
+        floorY_ = dish.floorY;
+        ceilY_  = dish.ceilY();
+
+        blobs_.clear();
+        const float sampleY = floorY_ + (ceilY_ - floorY_) * 0.5f;
+        const float cornerR = radius_ - 3.8f;
+        const float cornerAngles[3] = { 0.0f, 2.0f * PI / 3.0f, 4.0f * PI / 3.0f };
+
+        for (int z = 0; z < 3; z++)
         {
-            respawn(p);
-            p.age = randf() * p.lifespan;
+            for (int b = 0; b < blobsPerZone; b++)
+            {
+                float jitterR = (randf() - 0.5f) * 1.2f;
+                float jitterA = (randf() - 0.5f) * 0.40f;
+                float r  = Clamp(cornerR + jitterR, radius_ - 7.5f, radius_ - 2.8f);
+                float a  = cornerAngles[z] + jitterA;
+
+                Blob blob;
+                blob.center = {
+                    r * std::cos(a),
+                    sampleY + (randf() - 0.5f) * 0.45f,
+                    r * std::sin(a)
+                };
+                blob.sigma        = 2.8f + randf() * 1.8f;
+                blob.baseStrength = 0.65f + randf() * 0.35f;
+                blob.strength     = blob.baseStrength;
+                blobs_.push_back(blob);
+            }
         }
+
+        recomputeMaxConcentration();
+        initParticles(particleCount);
     }
 
     float concentrationAt(Vector3 pos) const
@@ -121,8 +152,9 @@ public:
         {
             float s2 = std::max(b.sigma * b.sigma, 1e-4f);
             Vector3 d = Vector3Subtract(pos, b.center);
-            float w = std::exp(-Vector3DotProduct(d, d) / (2.0f * s2)); // 0..1
-            b.strength = std::max(0.0f, b.strength - bite * w);
+            float w = std::exp(-Vector3DotProduct(d, d) / (2.0f * s2));
+            float floorStrength = b.baseStrength * minStrengthFrac_;
+            b.strength = std::max(floorStrength, b.strength - bite * w);
         }
         return available;
     }
@@ -200,12 +232,32 @@ private:
     float floorY_ = 0.0f;
     float ceilY_  = 5.0f;
     float maxConc_ = 1.0f;
-    float regenRate_ = 0.18f; // how fast grazed sources recover
+    float regenRate_ = 0.55f;
+    float minStrengthFrac_ = 0.20f;
 
     std::vector<Blob>     blobs_;
     std::vector<Particle> particles_;
 
     static float randf() { return (float)GetRandomValue(0, 10000) / 10000.0f; }
+
+    void initParticles(int particleCount)
+    {
+        particles_.assign((size_t)std::max(0, particleCount), Particle{});
+        for (auto &p : particles_)
+        {
+            respawn(p);
+            p.age = randf() * p.lifespan;
+        }
+    }
+
+    void recomputeMaxConcentration()
+    {
+        maxConc_ = 1e-4f;
+        for (const auto &b : blobs_)
+            maxConc_ = std::max(maxConc_, concentrationAt(b.center));
+        for (const auto &b : blobs_)
+            maxConc_ = std::max(maxConc_, b.baseStrength);
+    }
 
     Vector3 randomPointInDish(float margin) const
     {
@@ -217,17 +269,39 @@ private:
 
     Vector3 sampleByConcentration() const
     {
-        Vector3 best = randomPointInDish(0.6f);
+        if (blobs_.empty())
+            return randomPointInDish(0.6f);
+
+        const Blob &anchor = blobs_[GetRandomValue(0, (int)blobs_.size() - 1)];
+        Vector3 best = anchor.center;
         float bestC = concentrationAt(best);
-        for (int attempt = 0; attempt < 12; attempt++)
+        for (int attempt = 0; attempt < 16; attempt++)
         {
-            Vector3 cand = randomPointInDish(0.6f);
+            Vector3 cand = {
+                anchor.center.x + (randf() - 0.5f) * anchor.sigma * 3.4f,
+                anchor.center.y + (randf() - 0.5f) * 0.5f,
+                anchor.center.z + (randf() - 0.5f) * anchor.sigma * 3.4f
+            };
+            reflectIntoDish(cand);
             float c = concentrationAt(cand);
             if (randf() < c / maxConc_)
                 return cand;
             if (c > bestC) { bestC = c; best = cand; }
         }
         return best;
+    }
+
+    void reflectIntoDish(Vector3 &pos) const
+    {
+        if (pos.y < floorY_) pos.y = floorY_;
+        if (pos.y > ceilY_)  pos.y = ceilY_;
+        float r = std::sqrt(pos.x * pos.x + pos.z * pos.z);
+        if (r > radius_ && r > 1e-4f)
+        {
+            float scale = radius_ / r;
+            pos.x *= scale;
+            pos.z *= scale;
+        }
     }
 
     void respawn(Particle &p) const

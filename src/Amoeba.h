@@ -33,7 +33,7 @@ private:
     Vector3 heading;
     int numMembraneNodes;
 
-    BehaviorStateMachine myStateMachine; 
+    BehaviorStateMachine myStateMachine{50.0f, 50.0f, 20.0f};
     float internalHunger = 0.0f;
     float internalFear = 0.0f;
     float internalTempStress = 0.0f;
@@ -247,6 +247,7 @@ public:
                  float currentTemperature,
                  Vector3 temperatureGradient,
                  float targetTemperature,
+                 float comfortBand,
                  const std::vector<Obstacle>& obstacles)
     {
         for (auto& pf : pendingForces) { pf = Vector3Zero(); }
@@ -258,11 +259,11 @@ public:
 
         internalFear = std::max(0.0f, internalFear - dt * 15.0f);
 
-        float targetTempStress = Clamp(std::abs(currentTemperature - targetTemperature) * 8.0f, 0.0f, 100.0f);
+        float targetTempStress = Clamp(std::abs(currentTemperature - targetTemperature) * 12.0f, 0.0f, 100.0f);
         if (targetTempStress > internalTempStress)
             internalTempStress = std::min(targetTempStress, internalTempStress + dt * 4.0f);
         else
-            internalTempStress = std::max(targetTempStress, internalTempStress - dt * 10.0f);
+            internalTempStress = std::max(targetTempStress, internalTempStress - dt * 3.0f);
 
         myStateMachine.updateSensors(internalFear, internalHunger, internalTempStress);
 
@@ -340,16 +341,39 @@ public:
         }
         else if (myStateMachine.isSeekingTemperature())
         {
-            speedMultiplier = 1.0f;
-            stretchFactor = 1.05f;
-            pulseSpeed = 2.0f;
+            float deviation = currentTemperature - targetTemperature;
+            float band = std::max(comfortBand, 0.5f);
 
-            Vector3 tempDir = temperatureGradient;
-            if (currentTemperature > targetTemperature)
-                tempDir = Vector3Negate(tempDir);
+            if (std::fabs(deviation) < band)
+            {
+                speedMultiplier = 0.4f;
+                stretchFactor = 0.85f;
+                pulseSpeed = 1.4f;
 
-            if (Vector3Length(tempDir) > 0.0001f)
+                wanderTimer -= dt;
+                if (wanderTimer <= 0.0f)
+                {
+                    Vector3 randDir = {
+                        (float)GetRandomValue(-100, 100),
+                        (float)GetRandomValue(-100, 100),
+                        (float)GetRandomValue(-100, 100)
+                    };
+                    wanderTargetHeading = Vector3Normalize(randDir);
+                    wanderTimer = (float)GetRandomValue(2, 4);
+                }
+                targetHeading = wanderTargetHeading;
+            }
+            else if (Vector3Length(temperatureGradient) > 0.0001f)
+            {
+                speedMultiplier = 0.72f;
+                stretchFactor = 0.95f;
+                pulseSpeed = 1.7f;
+
+                Vector3 tempDir = (deviation < 0.0f)
+                    ? temperatureGradient
+                    : Vector3Negate(temperatureGradient);
                 targetHeading = Vector3Normalize(tempDir);
+            }
         }
         else 
         {
@@ -527,9 +551,9 @@ public:
         }
 
         float speed = Vector3Length(nodes[0].velocity);
-        if (speed > .05f)
+        if (speed > 0.05f)
         {
-            nodes[0].velocity = Vector3Scale(Vector3Normalize(nodes[0].velocity), .05f);
+            nodes[0].velocity = Vector3Scale(Vector3Normalize(nodes[0].velocity), 0.05f);
         }
     }
 
